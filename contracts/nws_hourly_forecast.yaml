@@ -1,0 +1,100 @@
+contract_version: "1.0"
+
+dataset:
+  name: nws_hourly_forecast
+  source: nws
+  domain: weather
+  description: Hourly point forecasts from the National Weather Service.
+  owner: gridpulse-platform
+  layer: bronze
+
+source:
+  provider: National Weather Service
+  api_version: weather.gov
+  endpoint: /points/{latitude},{longitude} -> forecastHourly
+  frequency: hourly
+
+schema:
+  fields:
+    latitude:
+      type: number
+      required: true
+
+    longitude:
+      type: number
+      required: true
+
+    period_start:
+      type: datetime
+      required: true
+
+    period_end:
+      type: datetime
+      required: true
+
+    temperature:
+      type: number
+      required: true
+
+    temperature_unit:
+      type: string
+      required: true
+      allow_empty: false
+
+    precipitation_probability:
+      type: number
+      required: false
+      nullable: true
+
+    relative_humidity:
+      type: number
+      required: false
+      nullable: true
+
+    wind_speed:
+      type: string
+      required: true
+      allow_empty: false
+
+    wind_direction:
+      type: string
+      required: true
+      allow_empty: false
+
+    short_forecast:
+      type: string
+      required: true
+      allow_empty: false
+
+quality:
+  uniqueness:
+    columns:
+      - latitude
+      - longitude
+      - period_start
+
+  completeness:
+    required_percentage: 100
+
+  freshness:
+    expected_frequency: hourly
+    maximum_delay_hours: 6
+
+  validation:
+    reject_unknown_fields: true
+    quarantine_invalid_records: true
+
+storage:
+  format: json
+  partitioning:
+    - ingestion_date
+  path: data/raw/nws/hourly-forecast
+
+metadata:
+  required:
+    - source
+    - dataset
+    - schema_version
+    - run_id
+    - ingested_at
+    - record_count

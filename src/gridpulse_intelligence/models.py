@@ -14,32 +14,16 @@ class GridRegionRecord(BaseModel):
     )
 
     period: datetime
-
     respondent: str
-
-    respondent_name: str = Field(
-        alias="respondent-name",
-    )
-
-    record_type: str = Field(
-        alias="type",
-    )
-
-    type_name: str = Field(
-        alias="type-name",
-    )
-
+    respondent_name: str = Field(alias="respondent-name")
+    record_type: str = Field(alias="type")
+    type_name: str = Field(alias="type-name")
     value: float
-
-    value_units: str = Field(
-        alias="value-units",
-    )
+    value_units: str = Field(alias="value-units")
 
     @field_validator("period", mode="before")
     @classmethod
     def parse_period(cls, value: object) -> datetime:
-        """Convert EIA and stored ISO period values into datetime objects."""
-
         if isinstance(value, datetime):
             return value
 
@@ -69,9 +53,10 @@ class GridRegionRecord(BaseModel):
         "type_name",
     )
     @classmethod
-    def validate_non_empty_text(cls, value: str) -> str:
-        """Reject unexpectedly empty identifying fields."""
-
+    def validate_non_empty_text(
+        cls,
+        value: str,
+    ) -> str:
         cleaned = value.strip()
 
         if not cleaned:
@@ -81,7 +66,60 @@ class GridRegionRecord(BaseModel):
 
     @field_validator("value_units")
     @classmethod
-    def normalize_units(cls, value: str) -> str:
-        """Normalize units for downstream processing."""
-
+    def normalize_units(
+        cls,
+        value: str,
+    ) -> str:
         return value.strip().lower()
+
+
+class WeatherForecastRecord(BaseModel):
+    """Normalized hourly weather forecast from NWS."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    latitude: float
+    longitude: float
+    period_start: datetime
+    period_end: datetime
+    temperature: float
+    temperature_unit: str
+    precipitation_probability: float | None = None
+    relative_humidity: float | None = None
+    wind_speed: str
+    wind_direction: str
+    short_forecast: str
+
+    @field_validator(
+        "period_start",
+        "period_end",
+    )
+    @classmethod
+    def require_timezone(
+        cls,
+        value: datetime,
+    ) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("weather timestamps must be timezone-aware")
+
+        return value
+
+    @field_validator(
+        "temperature_unit",
+        "wind_speed",
+        "wind_direction",
+        "short_forecast",
+    )
+    @classmethod
+    def validate_weather_text(
+        cls,
+        value: str,
+    ) -> str:
+        cleaned = value.strip()
+
+        if not cleaned:
+            raise ValueError("weather text fields must not be empty")
+
+        return cleaned
