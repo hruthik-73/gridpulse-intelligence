@@ -5,8 +5,10 @@ import argparse
 import structlog
 
 from gridpulse_intelligence.bronze import write_eia_bronze_snapshot
-from gridpulse_intelligence.bronze_validation import validate_eia_bronze_snapshot
 from gridpulse_intelligence.eia_client import EIAClient
+from gridpulse_intelligence.quality_gate import (
+    validate_or_quarantine_eia_snapshot,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -29,7 +31,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_ingestion(limit: int) -> None:
-    """Run one EIA Bronze ingestion and validate the resulting snapshot."""
+    """Run one EIA Bronze ingestion through the quality gate."""
 
     logger.info(
         "eia_ingestion_started",
@@ -47,7 +49,7 @@ def run_ingestion(limit: int) -> None:
             records=records,
         )
 
-        validation_report = validate_eia_bronze_snapshot(
+        validation_report = validate_or_quarantine_eia_snapshot(
             snapshot_path=output_path,
         )
 

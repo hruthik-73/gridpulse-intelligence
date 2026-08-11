@@ -50,6 +50,7 @@ credentials/
 # Large/generated datasets
 # -------------------------
 data/raw/*
+data/quarantine/*
 data/processed/*
 data/checkpoints/*
 data/warehouse/*
