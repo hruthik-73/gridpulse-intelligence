@@ -5,6 +5,7 @@ import argparse
 import structlog
 
 from gridpulse_intelligence.bronze import write_eia_bronze_snapshot
+from gridpulse_intelligence.bronze_validation import validate_eia_bronze_snapshot
 from gridpulse_intelligence.eia_client import EIAClient
 
 logger = structlog.get_logger(__name__)
@@ -28,7 +29,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_ingestion(limit: int) -> None:
-    """Run one EIA Bronze ingestion."""
+    """Run one EIA Bronze ingestion and validate the resulting snapshot."""
 
     logger.info(
         "eia_ingestion_started",
@@ -46,6 +47,10 @@ def run_ingestion(limit: int) -> None:
             records=records,
         )
 
+        validation_report = validate_eia_bronze_snapshot(
+            snapshot_path=output_path,
+        )
+
     finally:
         client.close()
 
@@ -53,12 +58,17 @@ def run_ingestion(limit: int) -> None:
         "eia_ingestion_completed",
         requested_records=limit,
         records_received=len(records),
+        validated_records=validation_report.record_count,
+        unique_keys=validation_report.unique_key_count,
         output_path=str(output_path),
     )
 
     print()
     print("GridPulse EIA ingestion completed")
-    print(f"Records: {len(records)}")
+    print(f"Records received: {len(records)}")
+    print(f"Records validated: {validation_report.record_count}")
+    print(f"Unique keys: {validation_report.unique_key_count}")
+    print("Contract validation: PASSED")
     print(f"Bronze file: {output_path}")
 
 

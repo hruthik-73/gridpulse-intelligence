@@ -1,0 +1,86 @@
+contract_version: "1.0"
+
+dataset:
+  name: eia_region_data
+  source: eia
+  domain: electricity
+  description: Hourly regional electricity operating data from the U.S. Energy Information Administration.
+  owner: gridpulse-platform
+  layer: bronze
+
+source:
+  provider: U.S. Energy Information Administration
+  api_version: v2
+  endpoint: /electricity/rto/region-data/data/
+  frequency: hourly
+
+schema:
+  fields:
+    period:
+      type: datetime
+      required: true
+
+    respondent:
+      type: string
+      required: true
+      allow_empty: false
+
+    respondent-name:
+      type: string
+      required: true
+      allow_empty: false
+
+    type:
+      type: string
+      required: true
+      allow_empty: false
+
+    type-name:
+      type: string
+      required: true
+      allow_empty: false
+
+    value:
+      type: number
+      required: true
+
+    value-units:
+      type: string
+      required: true
+      allow_empty: false
+
+quality:
+  uniqueness:
+    columns:
+      - period
+      - respondent
+      - type
+
+  completeness:
+    required_percentage: 100
+
+  freshness:
+    expected_frequency: hourly
+    maximum_delay_hours: 24
+
+  validation:
+    reject_unknown_fields: true
+    quarantine_invalid_records: true
+
+storage:
+  format: json
+
+  partitioning:
+    - ingestion_date
+
+  path:
+    data/raw/eia/region-data
+
+metadata:
+  required:
+    - source
+    - dataset
+    - schema_version
+    - run_id
+    - ingested_at
+    - record_count

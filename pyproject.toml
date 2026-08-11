@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
     "structlog>=26.1.0",
     "tenacity>=9.1.4",
 ]
@@ -19,6 +20,7 @@ dev = [
     "ruff>=0.12",
     "mypy>=1.17",
     "pre-commit>=4",
+    "types-pyyaml>=6.0.12.20260724",
 ]
 
 [tool.ruff]

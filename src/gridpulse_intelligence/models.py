@@ -38,7 +38,7 @@ class GridRegionRecord(BaseModel):
     @field_validator("period", mode="before")
     @classmethod
     def parse_period(cls, value: object) -> datetime:
-        """Convert EIA hourly period strings into datetime objects."""
+        """Convert EIA and stored ISO period values into datetime objects."""
 
         if isinstance(value, datetime):
             return value
@@ -46,12 +46,28 @@ class GridRegionRecord(BaseModel):
         if not isinstance(value, str):
             raise ValueError("period must be a string or datetime")
 
-        return datetime.strptime(
-            value,
+        supported_formats = (
             "%Y-%m-%dT%H",
+            "%Y-%m-%dT%H:%M:%S",
         )
 
-    @field_validator("respondent", "respondent_name", "record_type", "type_name")
+        for date_format in supported_formats:
+            try:
+                return datetime.strptime(
+                    value,
+                    date_format,
+                )
+            except ValueError:
+                continue
+
+        raise ValueError("period must use YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM:SS")
+
+    @field_validator(
+        "respondent",
+        "respondent_name",
+        "record_type",
+        "type_name",
+    )
     @classmethod
     def validate_non_empty_text(cls, value: str) -> str:
         """Reject unexpectedly empty identifying fields."""
