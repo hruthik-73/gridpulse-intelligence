@@ -1,0 +1,136 @@
+# =========================================================
+# GridPulse Intelligence
+# =========================================================
+
+# -------------------------
+# macOS
+# -------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# -------------------------
+# Environment / Secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+
+secrets/
+credentials/
+
+# -------------------------
+# Data
+# Large/generated datasets
+# -------------------------
+data/raw/*
+data/processed/*
+data/checkpoints/*
+data/warehouse/*
+
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/sample/
+
+*.parquet
+*.orc
+*.avro
+
+# -------------------------
+# Spark
+# -------------------------
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoints/
+checkpoint/
+
+# -------------------------
+# dbt
+# -------------------------
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+
+# -------------------------
+# Dagster
+# -------------------------
+.dagster/
+dagster_home/
+
+# -------------------------
+# MLflow
+# -------------------------
+mlruns/
+mlartifacts/
+
+# -------------------------
+# Node / Next.js
+# -------------------------
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -------------------------
+# Terraform
+# -------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Keep Terraform dependency lock file
+!.terraform.lock.hcl
+
+# -------------------------
+# IDE
+# -------------------------
+.idea/
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# -------------------------
+# Logs / Cache / Temp
+# -------------------------
+*.log
+logs/
+.cache/
+tmp/
+temp/
