@@ -1,5 +1,6 @@
 """Client for the U.S. Energy Information Administration API."""
 
+from datetime import datetime
 from typing import Final
 
 import httpx
@@ -26,9 +27,12 @@ class EIAClient:
     """HTTP client for EIA API v2."""
 
     BASE_URL: Final[str] = "https://api.eia.gov/v2"
+    MAX_PAGE_SIZE: Final[int] = 5000
+    REGION_DATA_ENDPOINT: Final[str] = "/electricity/rto/region-data/data/"
 
     def __init__(self, timeout_seconds: float = 20.0) -> None:
         """Initialize the EIA API client."""
+
         settings = get_settings()
 
         self._api_key = settings.eia_api_key.get_secret_value()
@@ -44,6 +48,7 @@ class EIAClient:
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""
+
         self._client.close()
 
     @retry(
@@ -83,6 +88,7 @@ class EIAClient:
                 "eia_network_error",
                 endpoint=endpoint,
             )
+
             raise EIATransientError("Network error while contacting the EIA API.") from None
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -91,6 +97,7 @@ class EIAClient:
                 endpoint=endpoint,
                 status_code=response.status_code,
             )
+
             raise EIATransientError(
                 f"EIA API temporarily unavailable. Status: {response.status_code}"
             )
@@ -101,6 +108,7 @@ class EIAClient:
                 endpoint=endpoint,
                 status_code=response.status_code,
             )
+
             raise EIAError(f"EIA API request failed. Status: {response.status_code}")
 
         try:
@@ -119,50 +127,170 @@ class EIAClient:
 
         return {str(key): value for key, value in payload.items()}
 
-    def get_latest_region_data(
-        self,
-        length: int = 5,
-    ) -> list[GridRegionRecord]:
-        """Return validated latest hourly EIA regional grid records."""
-
-        if not 1 <= length <= 5000:
-            raise ValueError("length must be between 1 and 5000")
-
-        payload = self._request(
-            endpoint="/electricity/rto/region-data/data/",
-            params={
-                "frequency": "hourly",
-                "data[0]": "value",
-                "sort[0][column]": "period",
-                "sort[0][direction]": "desc",
-                "offset": "0",
-                "length": str(length),
-            },
-        )
+    @staticmethod
+    def _extract_response(
+        payload: Record,
+    ) -> tuple[list[Record], int]:
+        """Extract records and total row count from an EIA response."""
 
         response_section = payload.get("response")
 
         if not isinstance(response_section, dict):
             raise EIAError("EIA response is missing the response section.")
 
-        records = response_section.get("data")
+        raw_records = response_section.get("data")
+        raw_total = response_section.get("total")
 
-        if not isinstance(records, list):
+        if not isinstance(raw_records, list):
             raise EIAError("EIA response is missing the data section.")
 
-        result: list[GridRegionRecord] = []
+        if not isinstance(raw_total, str):
+            raise EIAError("EIA response is missing the total row count.")
 
-        for record in records:
+        try:
+            total = int(raw_total)
+        except ValueError:
+            raise EIAError("EIA response total row count is invalid.") from None
+
+        records: list[Record] = []
+
+        for record in raw_records:
             if isinstance(record, dict):
-                normalized_record = {str(key): value for key, value in record.items()}
+                records.append({str(key): value for key, value in record.items()})
 
-                validated_record = GridRegionRecord.model_validate(normalized_record)
+        return records, total
 
-                result.append(validated_record)
+    @staticmethod
+    def _validate_records(
+        records: list[Record],
+    ) -> list[GridRegionRecord]:
+        """Convert raw EIA records into validated GridRegionRecord objects."""
+
+        return [GridRegionRecord.model_validate(record) for record in records]
+
+    def get_latest_region_data(
+        self,
+        length: int = 5,
+    ) -> list[GridRegionRecord]:
+        """Return the latest validated hourly EIA regional grid records."""
+
+        if not 1 <= length <= self.MAX_PAGE_SIZE:
+            raise ValueError(f"length must be between 1 and {self.MAX_PAGE_SIZE}")
+
+        payload = self._request(
+            endpoint=self.REGION_DATA_ENDPOINT,
+            params={
+                "frequency": "hourly",
+                "data[0]": "value",
+                "sort[0][column]": "period",
+                "sort[0][direction]": "desc",
+                "sort[1][column]": "respondent",
+                "sort[1][direction]": "asc",
+                "sort[2][column]": "type",
+                "sort[2][direction]": "asc",
+                "offset": "0",
+                "length": str(length),
+            },
+        )
+
+        raw_records, _ = self._extract_response(payload)
+
+        records = self._validate_records(raw_records)
 
         logger.info(
             "eia_records_received",
-            record_count=len(result),
+            record_count=len(records),
         )
 
-        return result
+        return records
+
+    def get_region_data(
+        self,
+        start: datetime,
+        end: datetime,
+        page_size: int = 5000,
+        max_records: int | None = None,
+    ) -> list[GridRegionRecord]:
+        """Retrieve historical EIA regional data using pagination."""
+
+        if start > end:
+            raise ValueError("start must be earlier than or equal to end")
+
+        if not 1 <= page_size <= self.MAX_PAGE_SIZE:
+            raise ValueError(f"page_size must be between 1 and {self.MAX_PAGE_SIZE}")
+
+        if max_records is not None and max_records < 1:
+            raise ValueError("max_records must be greater than zero")
+
+        start_value = start.strftime("%Y-%m-%dT%H")
+        end_value = end.strftime("%Y-%m-%dT%H")
+
+        offset = 0
+        total_available: int | None = None
+        results: list[GridRegionRecord] = []
+
+        while True:
+            remaining = None if max_records is None else max_records - len(results)
+
+            if remaining is not None and remaining <= 0:
+                break
+
+            current_page_size = page_size if remaining is None else min(page_size, remaining)
+
+            logger.info(
+                "eia_page_requested",
+                offset=offset,
+                page_size=current_page_size,
+                start=start_value,
+                end=end_value,
+            )
+
+            payload = self._request(
+                endpoint=self.REGION_DATA_ENDPOINT,
+                params={
+                    "frequency": "hourly",
+                    "data[0]": "value",
+                    "start": start_value,
+                    "end": end_value,
+                    "sort[0][column]": "period",
+                    "sort[0][direction]": "asc",
+                    "sort[1][column]": "respondent",
+                    "sort[1][direction]": "asc",
+                    "sort[2][column]": "type",
+                    "sort[2][direction]": "asc",
+                    "offset": str(offset),
+                    "length": str(current_page_size),
+                },
+            )
+
+            raw_records, total_available = self._extract_response(payload)
+
+            if not raw_records:
+                break
+
+            validated_records = self._validate_records(raw_records)
+
+            results.extend(validated_records)
+
+            logger.info(
+                "eia_page_received",
+                offset=offset,
+                records_received=len(validated_records),
+                records_collected=len(results),
+                total_available=total_available,
+            )
+
+            offset += len(raw_records)
+
+            if offset >= total_available:
+                break
+
+        logger.info(
+            "eia_pagination_completed",
+            records_collected=len(results),
+            total_available=total_available,
+            start=start_value,
+            end=end_value,
+        )
+
+        return results
