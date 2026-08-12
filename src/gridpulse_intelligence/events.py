@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-type EventSource = Literal["eia", "nws", "afdc"]
+type EventSource = Literal["eia", "nws", "afdc", "platform"]
 
 
 class EventEnvelope(BaseModel):
