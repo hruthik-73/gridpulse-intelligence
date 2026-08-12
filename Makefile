@@ -94,3 +94,18 @@ analytics:
 	uv run python pipelines/streaming/bronze_to_silver.py
 	uv run python pipelines/analytics/build_gold.py
 	uv run dbt build --project-dir analytics/dbt --profiles-dir analytics/dbt
+
+
+.PHONY: observability-up observability-down observability-logs observability-status
+
+observability-up:
+	docker compose -f infrastructure/docker/docker-compose.observability.yml up -d
+
+observability-down:
+	docker compose -f infrastructure/docker/docker-compose.observability.yml down
+
+observability-logs:
+	docker compose -f infrastructure/docker/docker-compose.observability.yml logs --tail 100
+
+observability-status:
+	docker compose -f infrastructure/docker/docker-compose.observability.yml ps

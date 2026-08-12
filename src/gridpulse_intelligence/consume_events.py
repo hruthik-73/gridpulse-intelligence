@@ -4,9 +4,7 @@ import argparse
 from threading import Thread
 from wsgiref.simple_server import WSGIServer
 
-from prometheus_client import (
-    start_http_server,
-)
+from prometheus_client import start_http_server
 
 from gridpulse_intelligence.kafka_consumer import (
     DEFAULT_TOPICS,
@@ -43,19 +41,6 @@ def positive_integer(
     return result
 
 
-def tcp_port(
-    value: str,
-) -> int:
-    """Parse a valid TCP port."""
-
-    result = positive_integer(value)
-
-    if result > 65535:
-        raise argparse.ArgumentTypeError("Port must be between 1 and 65535.")
-
-    return result
-
-
 def positive_float(
     value: str,
 ) -> float:
@@ -72,6 +57,19 @@ def positive_float(
     return result
 
 
+def tcp_port(
+    value: str,
+) -> int:
+    """Parse a valid TCP port."""
+
+    result = positive_integer(value)
+
+    if result > 65535:
+        raise argparse.ArgumentTypeError("Port must be between 1 and 65535.")
+
+    return result
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
 
@@ -79,7 +77,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--group-id",
-        default=("gridpulse-validation-consumer-v1"),
+        default="gridpulse-validation-consumer-v1",
         help="Kafka consumer group ID.",
     )
 
@@ -108,7 +106,13 @@ def parse_args() -> argparse.Namespace:
         "--metrics-port",
         type=tcp_port,
         default=None,
-        help=("Optional local Prometheus metrics port."),
+        help="Optional Prometheus metrics port.",
+    )
+
+    parser.add_argument(
+        "--metrics-address",
+        default="127.0.0.1",
+        help=("Metrics HTTP bind address. Use 0.0.0.0 when Prometheus runs in Docker."),
     )
 
     return parser.parse_args()
@@ -120,6 +124,7 @@ def run_consumer(
     max_messages: int | None,
     poll_timeout: float,
     metrics_port: int | None = None,
+    metrics_address: str = "127.0.0.1",
 ) -> int:
     """Run the validated GridPulse Kafka consumer."""
 
@@ -127,6 +132,11 @@ def run_consumer(
 
     if not normalized_group_id:
         raise ValueError("group_id must not be empty")
+
+    normalized_metrics_address = metrics_address.strip()
+
+    if not normalized_metrics_address:
+        raise ValueError("metrics_address must not be empty")
 
     consumer = GridPulseKafkaConsumer(
         group_id=normalized_group_id,
@@ -141,11 +151,13 @@ def run_consumer(
             metrics_thread,
         ) = start_http_server(
             port=metrics_port,
-            addr="127.0.0.1",
+            addr=normalized_metrics_address,
         )
 
         print()
-        print(f"Prometheus metrics: http://127.0.0.1:{metrics_port}/metrics")
+        print("Prometheus metrics exporter started")
+        print(f"Address: {normalized_metrics_address}")
+        print(f"Port: {metrics_port}")
 
     consumer.subscribe(
         topics=topics,
@@ -186,6 +198,7 @@ def main() -> None:
         max_messages=args.max_messages,
         poll_timeout=args.poll_timeout,
         metrics_port=args.metrics_port,
+        metrics_address=args.metrics_address,
     )
 
 
