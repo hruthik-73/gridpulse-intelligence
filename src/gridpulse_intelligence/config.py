@@ -30,6 +30,11 @@ class Settings(BaseSettings):
         alias="NOAA_USER_AGENT",
     )
 
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9092",
+        alias="KAFKA_BOOTSTRAP_SERVERS",
+    )
+
     app_env: str = Field(
         default="development",
         alias="APP_ENV",
