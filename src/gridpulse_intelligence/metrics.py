@@ -97,6 +97,27 @@ class GridPulseMetrics:
             registry=self.registry,
         )
 
+        self.api_requests = Counter(
+            "gridpulse_api_requests",
+            ("Total HTTP requests handled by method, route, and status."),
+            (
+                "method",
+                "route",
+                "status",
+            ),
+            registry=self.registry,
+        )
+
+        self.api_request_duration = Histogram(
+            "gridpulse_api_request_duration_seconds",
+            ("GridPulse API request duration in seconds."),
+            (
+                "method",
+                "route",
+            ),
+            registry=self.registry,
+        )
+
     def observe_pipeline_run(
         self,
         *,
@@ -193,6 +214,45 @@ class GridPulseMetrics:
             source=normalized_source,
             outcome=normalized_outcome,
         ).inc()
+
+    def record_api_request(
+        self,
+        *,
+        method: str,
+        route: str,
+        status_code: int,
+        duration_seconds: float,
+    ) -> None:
+        """Record one completed API request."""
+
+        if duration_seconds < 0:
+            raise ValueError("duration_seconds must not be negative")
+
+        if status_code < 100 or status_code > 599:
+            raise ValueError("status_code must be between 100 and 599")
+
+        normalized_method = _required_label(
+            method,
+            "method",
+        ).upper()
+
+        normalized_route = _required_label(
+            route,
+            "route",
+        )
+
+        status = str(status_code)
+
+        self.api_requests.labels(
+            method=normalized_method,
+            route=normalized_route,
+            status=status,
+        ).inc()
+
+        self.api_request_duration.labels(
+            method=normalized_method,
+            route=normalized_route,
+        ).observe(duration_seconds)
 
     def render(self) -> bytes:
         """Render this registry in Prometheus exposition format."""
