@@ -1,0 +1,94 @@
+version: 2
+
+models:
+  - name: mart_grid_hourly
+    description: >
+      Analytics-ready hourly electricity metrics by EIA
+      balancing authority.
+
+    columns:
+      - name: grid_hour_key
+        data_tests:
+          - not_null
+          - unique
+
+      - name: period
+        data_tests:
+          - not_null
+
+      - name: respondent
+        data_tests:
+          - not_null
+
+      - name: contains_replay
+        data_tests:
+          - not_null
+
+  - name: mart_balancing_authority_performance
+    description: >
+      Balancing-authority performance metrics including
+      demand, forecast accuracy, and generation coverage.
+
+    columns:
+      - name: respondent
+        data_tests:
+          - not_null
+          - unique
+
+      - name: observed_hours
+        data_tests:
+          - not_null
+
+      - name: contains_replay
+        data_tests:
+          - not_null
+
+  - name: mart_ev_city_rankings
+    description: >
+      City-level EV charging infrastructure rankings.
+
+    columns:
+      - name: city_state_key
+        data_tests:
+          - not_null
+          - unique
+
+      - name: city
+        data_tests:
+          - not_null
+
+      - name: state
+        data_tests:
+          - not_null
+
+      - name: station_count
+        data_tests:
+          - not_null
+
+  - name: mart_weather_forecast
+    description: >
+      Dashboard-ready hourly weather forecast mart.
+
+    columns:
+      - name: weather_forecast_key
+        data_tests:
+          - not_null
+          - unique
+
+      - name: location_key
+        data_tests:
+          - not_null
+
+      - name: period_start
+        data_tests:
+          - not_null
+
+      - name: precipitation_risk
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - low
+                  - moderate
+                  - high
+                  - unknown

@@ -1,0 +1,24 @@
+name: "gridpulse_intelligence"
+version: "1.0.0"
+
+config-version: 2
+
+profile: "gridpulse_intelligence"
+
+model-paths:
+  - "models"
+
+test-paths:
+  - "tests"
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  gridpulse_intelligence:
+    staging:
+      +materialized: view
+
+    marts:
+      +materialized: table

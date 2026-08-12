@@ -1,0 +1,83 @@
+version: 2
+
+models:
+  - name: stg_eia_balancing_authority_hourly
+    description: >
+      Typed hourly electricity metrics by EIA balancing authority.
+
+    columns:
+      - name: period
+        data_tests:
+          - not_null
+
+      - name: respondent
+        data_tests:
+          - not_null
+
+      - name: hour_of_day
+        data_tests:
+          - not_null
+
+      - name: metric_count
+        data_tests:
+          - not_null
+
+      - name: contains_replay
+        data_tests:
+          - not_null
+
+  - name: stg_nws_hourly_weather
+    description: >
+      Typed hourly NWS weather forecasts with Kafka lineage.
+
+    columns:
+      - name: location_key
+        data_tests:
+          - not_null
+
+      - name: period_start
+        data_tests:
+          - not_null
+
+      - name: forecast_date
+        data_tests:
+          - not_null
+
+      - name: temperature_unit
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - F
+                  - C
+
+      - name: precipitation_risk
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - low
+                  - moderate
+                  - high
+                  - unknown
+
+  - name: stg_afdc_city_infrastructure
+    description: >
+      City-level public EV charging infrastructure metrics.
+
+    columns:
+      - name: city
+        data_tests:
+          - not_null
+
+      - name: state
+        data_tests:
+          - not_null
+
+      - name: country
+        data_tests:
+          - not_null
+
+      - name: station_count
+        data_tests:
+          - not_null

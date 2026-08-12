@@ -23,6 +23,8 @@ dev = [
     "mypy>=1.17",
     "pre-commit>=4",
     "types-pyyaml>=6.0.12.20260724",
+    "dbt-duckdb>=1.11.0",
+    "duckdb>=1.5.5",
 ]
 
 [tool.ruff]

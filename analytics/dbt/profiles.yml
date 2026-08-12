@@ -1,0 +1,12 @@
+gridpulse_intelligence:
+  target: dev
+
+  outputs:
+    dev:
+      type: duckdb
+      path: "data/warehouse/gridpulse.duckdb"
+      schema: analytics
+      threads: 4
+
+      extensions:
+        - parquet

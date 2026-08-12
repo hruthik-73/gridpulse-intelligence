@@ -135,3 +135,12 @@ logs/
 .cache/
 tmp/
 temp/
+
+# dbt
+analytics/dbt/target/
+analytics/dbt/logs/
+analytics/dbt/dbt_packages/
+
+# Local DuckDB warehouse
+data/warehouse/*.duckdb
+data/warehouse/*.duckdb.wal

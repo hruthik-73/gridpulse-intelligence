@@ -75,3 +75,22 @@ kafka-status:
 
 kafka-down:
 	docker compose -f infrastructure/docker/docker-compose.kafka.yml down
+
+.PHONY: dbt-debug dbt-build dbt-test dbt-docs analytics
+
+dbt-debug:
+	uv run dbt debug --project-dir analytics/dbt --profiles-dir analytics/dbt
+
+dbt-build:
+	uv run dbt build --project-dir analytics/dbt --profiles-dir analytics/dbt
+
+dbt-test:
+	uv run dbt test --project-dir analytics/dbt --profiles-dir analytics/dbt
+
+dbt-docs:
+	uv run dbt docs generate --project-dir analytics/dbt --profiles-dir analytics/dbt
+
+analytics:
+	uv run python pipelines/streaming/bronze_to_silver.py
+	uv run python pipelines/analytics/build_gold.py
+	uv run dbt build --project-dir analytics/dbt --profiles-dir analytics/dbt
