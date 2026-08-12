@@ -20,7 +20,9 @@ from prometheus_client import make_asgi_app
 from gridpulse_intelligence.api_models import (
     APIHealth,
     BalancingAuthorityPerformance,
+    ComponentHealthResponse,
     EVCityRanking,
+    PlatformHealthResponse,
     PlatformStatus,
     WeatherForecast,
 )
@@ -30,6 +32,9 @@ from gridpulse_intelligence.api_repository import (
     GridPulseRepositoryError,
 )
 from gridpulse_intelligence.metrics import get_metrics
+from gridpulse_intelligence.platform_health import (
+    PlatformHealthService,
+)
 
 FRONTEND_ORIGINS = [
     "http://localhost:3001",
@@ -143,6 +148,19 @@ RepositoryDependency = Annotated[
 ]
 
 
+@lru_cache
+def get_platform_health_service() -> PlatformHealthService:
+    """Return the process-wide platform health service."""
+
+    return PlatformHealthService(repository=get_repository())
+
+
+HealthServiceDependency = Annotated[
+    PlatformHealthService,
+    Depends(get_platform_health_service),
+]
+
+
 @app.get(
     "/health",
     response_model=APIHealth,
@@ -184,6 +202,51 @@ def platform_status(
         status="ok",
         database="duckdb",
         **status,
+    )
+
+
+@app.get(
+    "/api/v1/platform/health",
+    response_model=PlatformHealthResponse,
+    tags=[
+        "platform",
+    ],
+)
+def platform_health(
+    health_service: HealthServiceDependency,
+) -> PlatformHealthResponse:
+    """Return runtime dependency health."""
+
+    components = health_service.snapshot()
+
+    statuses = {component.status for component in components.values()}
+
+    if "unhealthy" in statuses:
+        overall_status = "unhealthy"
+
+    elif "degraded" in statuses:
+        overall_status = "degraded"
+
+    else:
+        overall_status = "healthy"
+
+    def response_component(
+        name: str,
+    ) -> ComponentHealthResponse:
+        component = components[name]
+
+        return ComponentHealthResponse(
+            status=component.status,
+            detail=component.detail,
+            latency_ms=component.latency_ms,
+        )
+
+    return PlatformHealthResponse(
+        status=overall_status,
+        warehouse=response_component("warehouse"),
+        kafka=response_component("kafka"),
+        prometheus=response_component("prometheus"),
+        kafka_consumer=response_component("kafka_consumer"),
     )
 
 

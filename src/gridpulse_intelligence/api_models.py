@@ -134,3 +134,30 @@ class WeatherForecast(BaseModel):
     kafka_partition: int
     kafka_offset: int
     kafka_timestamp: datetime | None
+
+
+class ComponentHealthResponse(BaseModel):
+    """Health state for one GridPulse component."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    status: str
+    detail: str
+    latency_ms: float
+
+
+class PlatformHealthResponse(BaseModel):
+    """Runtime health of the GridPulse platform."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    status: str
+
+    warehouse: ComponentHealthResponse
+    kafka: ComponentHealthResponse
+    prometheus: ComponentHealthResponse
+    kafka_consumer: ComponentHealthResponse

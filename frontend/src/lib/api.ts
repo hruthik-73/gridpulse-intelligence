@@ -69,6 +69,25 @@ export interface WeatherForecast {
   kafka_timestamp: string | null;
 }
 
+export type HealthState =
+  | "healthy"
+  | "degraded"
+  | "unhealthy";
+
+export interface ComponentHealth {
+  status: HealthState;
+  detail: string;
+  latency_ms: number;
+}
+
+export interface PlatformHealth {
+  status: HealthState;
+  warehouse: ComponentHealth;
+  kafka: ComponentHealth;
+  prometheus: ComponentHealth;
+  kafka_consumer: ComponentHealth;
+}
+
 const API_URL =
   process.env.NEXT_PUBLIC_GRIDPULSE_API_URL ??
   "http://127.0.0.1:8080";
@@ -95,6 +114,12 @@ async function fetchJson<T>(
 export function getPlatformStatus() {
   return fetchJson<PlatformStatus>(
     "/api/v1/status",
+  );
+}
+
+export function getPlatformHealth() {
+  return fetchJson<PlatformHealth>(
+    "/api/v1/platform/health",
   );
 }
 
