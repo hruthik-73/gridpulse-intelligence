@@ -1,0 +1,141 @@
+contract_version: "1.0"
+
+dataset:
+  name: afdc_ev_stations
+  source: afdc
+  domain: transportation
+  description: Public and available U.S. electric vehicle charging stations from AFDC.
+  owner: gridpulse-platform
+  layer: bronze
+
+source:
+  provider: Alternative Fuel Data Center
+  api_provider: National Laboratory of the Rockies
+  endpoint: /api/alt-fuel-stations/v1.json
+  fuel_type: ELEC
+  access: public
+  status: E
+
+schema:
+  fields:
+    station_id:
+      type: integer
+      required: true
+
+    station_name:
+      type: string
+      required: true
+      allow_empty: false
+
+    street_address:
+      type: string
+      required: false
+      nullable: true
+
+    city:
+      type: string
+      required: true
+      allow_empty: false
+
+    state:
+      type: string
+      required: true
+      allow_empty: false
+
+    zip_code:
+      type: string
+      required: true
+      allow_empty: false
+
+    country:
+      type: string
+      required: true
+      allow_empty: false
+
+    latitude:
+      type: number
+      required: true
+
+    longitude:
+      type: number
+      required: true
+
+    fuel_type_code:
+      type: string
+      required: true
+
+    access_code:
+      type: string
+      required: true
+
+    status_code:
+      type: string
+      required: true
+
+    ev_network:
+      type: string
+      required: false
+      nullable: true
+
+    ev_connector_types:
+      type: array
+      required: true
+
+    ev_level1_evse_num:
+      type: integer
+      required: false
+      nullable: true
+
+    ev_level2_evse_num:
+      type: integer
+      required: false
+      nullable: true
+
+    ev_dc_fast_num:
+      type: integer
+      required: false
+      nullable: true
+
+    facility_type:
+      type: string
+      required: false
+      nullable: true
+
+    date_last_confirmed:
+      type: date
+      required: false
+      nullable: true
+
+    updated_at:
+      type: datetime
+      required: false
+      nullable: true
+
+quality:
+  uniqueness:
+    columns:
+      - station_id
+
+  completeness:
+    required_percentage: 100
+
+  validation:
+    reject_unknown_fields: true
+    quarantine_invalid_records: true
+
+storage:
+  format: json
+  partitioning:
+    - ingestion_date
+  path: data/raw/afdc/ev-stations
+
+metadata:
+  required:
+    - source
+    - dataset
+    - schema_version
+    - run_id
+    - ingested_at
+    - record_count
+    - query_state
+    - total_results

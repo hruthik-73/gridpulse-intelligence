@@ -9,6 +9,11 @@ from gridpulse_intelligence.bronze_validation import (
     BronzeValidationReport,
     validate_eia_bronze_snapshot,
 )
+from gridpulse_intelligence.ev_validation import (
+    EVBronzeValidationError,
+    EVBronzeValidationReport,
+    validate_ev_bronze_snapshot,
+)
 from gridpulse_intelligence.quarantine import quarantine_snapshot
 from gridpulse_intelligence.weather_validation import (
     WeatherBronzeValidationError,
@@ -96,6 +101,46 @@ def validate_or_quarantine_nws_snapshot(
 
     logger.info(
         "nws_quality_gate_passed",
+        snapshot_path=str(snapshot_path),
+        record_count=report.record_count,
+    )
+
+    return report
+
+
+def validate_or_quarantine_ev_snapshot(
+    snapshot_path: Path,
+    contract_path: Path = Path("contracts/afdc_ev_stations.yaml"),
+    quarantine_root: Path = Path("data/quarantine/afdc/ev-stations"),
+) -> EVBronzeValidationReport:
+    """Validate an AFDC EV snapshot or quarantine it on failure."""
+
+    try:
+        report = validate_ev_bronze_snapshot(
+            snapshot_path=snapshot_path,
+            contract_path=contract_path,
+        )
+
+    except EVBronzeValidationError as exc:
+        quarantined_path = quarantine_snapshot(
+            snapshot_path=snapshot_path,
+            reason=str(exc),
+            quarantine_root=quarantine_root,
+        )
+
+        logger.error(
+            "ev_quality_gate_failed",
+            snapshot_path=str(snapshot_path),
+            quarantine_path=str(quarantined_path),
+            reason=str(exc),
+        )
+
+        raise QualityGateError(
+            f"EV quality gate failed; Bronze snapshot was quarantined at {quarantined_path}"
+        ) from exc
+
+    logger.info(
+        "ev_quality_gate_passed",
         snapshot_path=str(snapshot_path),
         record_count=report.record_count,
     )

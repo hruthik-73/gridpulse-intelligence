@@ -16,7 +16,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    eia_api_key: SecretStr = Field(alias="EIA_API_KEY")
+    eia_api_key: SecretStr = Field(
+        alias="EIA_API_KEY",
+    )
+
+    afdc_api_key: SecretStr | None = Field(
+        default=None,
+        alias="AFDC_API_KEY",
+    )
 
     noaa_user_agent: str = Field(
         default="GridPulseIntelligence/0.1",

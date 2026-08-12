@@ -1,6 +1,7 @@
 """Typed data models used by GridPulse Intelligence."""
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -123,3 +124,96 @@ class WeatherForecastRecord(BaseModel):
             raise ValueError("weather text fields must not be empty")
 
         return cleaned
+
+
+class EVChargingStationRecord(BaseModel):
+    """Normalized public EV charging station from AFDC."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    station_id: int
+    station_name: str
+
+    street_address: str | None = None
+    city: str
+    state: str
+    zip_code: str
+    country: str
+
+    latitude: float = Field(
+        ge=-90,
+        le=90,
+    )
+
+    longitude: float = Field(
+        ge=-180,
+        le=180,
+    )
+
+    fuel_type_code: Literal["ELEC"]
+    access_code: Literal["public"]
+    status_code: Literal["E"]
+
+    ev_network: str | None = None
+    ev_connector_types: list[str] = Field(default_factory=list)
+
+    ev_level1_evse_num: int | None = None
+    ev_level2_evse_num: int | None = None
+    ev_dc_fast_num: int | None = None
+
+    facility_type: str | None = None
+
+    date_last_confirmed: date | None = None
+    updated_at: datetime | None = None
+
+    @field_validator(
+        "station_name",
+        "city",
+        "state",
+        "zip_code",
+        "country",
+    )
+    @classmethod
+    def validate_station_text(
+        cls,
+        value: str,
+    ) -> str:
+        cleaned = value.strip()
+
+        if not cleaned:
+            raise ValueError("station text fields must not be empty")
+
+        return cleaned
+
+    @field_validator("state")
+    @classmethod
+    def normalize_state(
+        cls,
+        value: str,
+    ) -> str:
+        return value.upper()
+
+    @field_validator("country")
+    @classmethod
+    def normalize_country(
+        cls,
+        value: str,
+    ) -> str:
+        return value.upper()
+
+    @field_validator(
+        "ev_level1_evse_num",
+        "ev_level2_evse_num",
+        "ev_dc_fast_num",
+    )
+    @classmethod
+    def validate_evse_count(
+        cls,
+        value: int | None,
+    ) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("EVSE counts cannot be negative")
+
+        return value
