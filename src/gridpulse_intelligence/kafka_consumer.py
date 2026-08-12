@@ -1,4 +1,4 @@
-"""Validated Kafka consumer for GridPulse Intelligence."""
+"""Validated and observable Kafka consumer for GridPulse Intelligence."""
 
 import json
 from collections.abc import Callable
@@ -12,6 +12,10 @@ from gridpulse_intelligence.config import get_settings
 from gridpulse_intelligence.dead_letter import DeadLetterRecord
 from gridpulse_intelligence.events import EventEnvelope
 from gridpulse_intelligence.kafka_producer import KafkaEventProducer
+from gridpulse_intelligence.metrics import (
+    GridPulseMetrics,
+    get_metrics,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +27,10 @@ DEFAULT_TOPICS: Final[tuple[str, ...]] = (
 
 DEAD_LETTER_TOPIC: Final[str] = "gridpulse.dead-letter.v1"
 
-EventHandler = Callable[[EventEnvelope], None]
+EventHandler = Callable[
+    [EventEnvelope],
+    None,
+]
 
 
 class KafkaConsumerError(Exception):
@@ -48,7 +55,10 @@ def deserialize_event(
     except json.JSONDecodeError as exc:
         raise KafkaConsumerError("Kafka message contains invalid JSON.") from exc
 
-    if not isinstance(payload, dict):
+    if not isinstance(
+        payload,
+        dict,
+    ):
         raise KafkaConsumerError("Kafka event root must be a JSON object.")
 
     try:
@@ -78,8 +88,9 @@ class GridPulseKafkaConsumer:
 
     def __init__(
         self,
-        group_id: str = "gridpulse-validation-consumer-v1",
-        event_handler: EventHandler = default_event_handler,
+        group_id: str = ("gridpulse-validation-consumer-v1"),
+        event_handler: EventHandler = (default_event_handler),
+        metrics: GridPulseMetrics | None = None,
     ) -> None:
         settings = get_settings()
 
@@ -89,13 +100,15 @@ class GridPulseKafkaConsumer:
                 "group.id": group_id,
                 "enable.auto.commit": False,
                 "auto.offset.reset": "earliest",
-                "client.id": "gridpulse-consumer",
+                "client.id": ("gridpulse-consumer"),
             }
         )
 
         self._dead_letter_producer = KafkaEventProducer()
 
         self._event_handler = event_handler
+
+        self._metrics = metrics if metrics is not None else get_metrics()
 
     def subscribe(
         self,
@@ -136,8 +149,8 @@ class GridPulseKafkaConsumer:
 
         dead_letter = DeadLetterRecord(
             original_topic=message.topic(),
-            original_partition=message.partition(),
-            original_offset=message.offset(),
+            original_partition=(message.partition()),
+            original_offset=(message.offset()),
             failure_reason=reason,
             raw_key=self._safe_decode(message.key()),
             raw_value=self._safe_decode(message.value()),
@@ -145,9 +158,9 @@ class GridPulseKafkaConsumer:
 
         event = EventEnvelope(
             source="platform",
-            dataset="gridpulse_dead_letter",
-            event_type="gridpulse.dead_letter",
-            partition_key=message.topic(),
+            dataset=("gridpulse_dead_letter"),
+            event_type=("gridpulse.dead_letter"),
+            partition_key=(message.topic()),
             replay=False,
             payload=dead_letter.model_dump(mode="json"),
         )
@@ -161,10 +174,21 @@ class GridPulseKafkaConsumer:
 
         logger.warning(
             "kafka_message_dead_lettered",
-            original_topic=message.topic(),
-            partition=message.partition(),
+            original_topic=(message.topic()),
+            partition=(message.partition()),
             offset=message.offset(),
             reason=reason,
+        )
+
+    def _commit(
+        self,
+        message: Message,
+    ) -> None:
+        """Commit one source message synchronously."""
+
+        self._consumer.commit(
+            message=message,
+            asynchronous=False,
         )
 
     def process_message(
@@ -179,14 +203,17 @@ class GridPulseKafkaConsumer:
             if error.code() == KafkaError._PARTITION_EOF:
                 return None
 
+            self._metrics.record_kafka_message(
+                source="platform",
+                outcome="consumer_error",
+            )
+
             raise KafkaConsumerError(f"Kafka consumer error: {error}")
 
         try:
             event = deserialize_event(message.value())
 
-            self._event_handler(event)
-
-        except Exception as exc:
+        except KafkaConsumerError as exc:
             reason = f"{type(exc).__name__}: {exc}"
 
             self._publish_dead_letter(
@@ -194,29 +221,53 @@ class GridPulseKafkaConsumer:
                 reason=reason,
             )
 
-            self._consumer.commit(
-                message=message,
-                asynchronous=False,
+            self._commit(message)
+
+            self._metrics.record_kafka_message(
+                source="unknown",
+                outcome="dead_lettered",
             )
 
             logger.info(
                 "kafka_dlq_offset_committed",
                 topic=message.topic(),
-                partition=message.partition(),
+                partition=(message.partition()),
                 offset=message.offset(),
             )
 
             return None
 
-        self._consumer.commit(
-            message=message,
-            asynchronous=False,
+        try:
+            self._event_handler(event)
+
+        except Exception:
+            self._metrics.record_kafka_message(
+                source=event.source,
+                outcome="handler_failed",
+            )
+
+            logger.exception(
+                "kafka_event_handler_failed",
+                event_id=str(event.event_id),
+                source=event.source,
+                topic=message.topic(),
+                partition=(message.partition()),
+                offset=message.offset(),
+            )
+
+            raise
+
+        self._commit(message)
+
+        self._metrics.record_kafka_message(
+            source=event.source,
+            outcome="processed",
         )
 
         logger.info(
             "kafka_offset_committed",
             topic=message.topic(),
-            partition=message.partition(),
+            partition=(message.partition()),
             offset=message.offset(),
             event_id=str(event.event_id),
         )
