@@ -1,26 +1,24 @@
-.PHONY: help install sync test lint format typecheck check clean tree
+.PHONY: install sync test lint format typecheck check tree clean \
+	kafka-up kafka-init kafka-topics kafka-logs kafka-down kafka-status
 
-help:
-	@echo "GridPulse Intelligence"
-	@echo ""
-	@echo "make install    Install project dependencies"
-	@echo "make sync       Sync uv environment"
-	@echo "make test       Run tests"
-	@echo "make lint       Run Ruff linting"
-	@echo "make format     Format Python code"
-	@echo "make typecheck  Run mypy"
-	@echo "make check      Run all quality checks"
-	@echo "make tree       Show project structure"
-	@echo "make clean      Remove local caches"
+
+# ============================================================
+# PYTHON / PROJECT SETUP
+# ============================================================
 
 install:
-	uv sync --all-groups
+	uv sync
 
 sync:
-	uv sync --all-groups
+	uv sync
+
+
+# ============================================================
+# CODE QUALITY
+# ============================================================
 
 test:
-	uv run pytest -v
+	uv run pytest
 
 lint:
 	uv run ruff check .
@@ -37,11 +35,43 @@ check:
 	uv run mypy src
 	uv run pytest
 
+
+# ============================================================
+# PROJECT UTILITIES
+# ============================================================
+
 tree:
-	tree -a -I '.git|.venv|__pycache__|node_modules|.pytest_cache|.mypy_cache|.ruff_cache'
+	tree -a -I '.git|.venv|__pycache__|.pytest_cache|.mypy_cache|.ruff_cache|node_modules|data/raw|data/processed|data/quarantine'
 
 clean:
-	rm -rf .pytest_cache
-	rm -rf .mypy_cache
-	rm -rf .ruff_cache
-	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
+	find . -type d -name ".pytest_cache" -prune -exec rm -rf {} +
+	find . -type d -name ".mypy_cache" -prune -exec rm -rf {} +
+	find . -type d -name ".ruff_cache" -prune -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+
+
+# ============================================================
+# KAFKA LOCAL DEVELOPMENT
+# ============================================================
+
+kafka-up:
+	docker compose -f infrastructure/docker/docker-compose.kafka.yml up -d
+
+kafka-init:
+	./scripts/kafka-init.sh
+
+kafka-topics:
+	docker exec gridpulse-kafka \
+		/opt/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--list
+
+kafka-logs:
+	docker logs gridpulse-kafka --tail 100
+
+kafka-status:
+	docker ps --filter name=gridpulse-kafka
+
+kafka-down:
+	docker compose -f infrastructure/docker/docker-compose.kafka.yml down
