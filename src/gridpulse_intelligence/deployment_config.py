@@ -20,14 +20,15 @@ LOCAL_CORS_ORIGINS = (
 def get_runtime_mode() -> str:
     """Return the configured GridPulse runtime mode."""
 
-    return (
-        os.getenv(
-            "GRIDPULSE_RUNTIME_MODE",
-            "local",
-        )
-        .strip()
-        .lower()
-    )
+    configured = os.getenv("GRIDPULSE_RUNTIME_MODE")
+
+    if configured:
+        return configured.strip().lower()
+
+    if os.getenv("VERCEL") == "1":
+        return "portfolio"
+
+    return "local"
 
 
 def get_database_path() -> Path:

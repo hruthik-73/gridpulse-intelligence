@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "python -m pip install -r requirements-vercel.txt",
   "functions": {
     "src/index.py": {
+      "maxDuration": 60,
       "excludeFiles": "{frontend/**,tests/**,data/**,pipelines/**,infrastructure/**,docs/**,dbt/**,observability/**,orchestration/**,scripts/**,ml/**,ai/**,.venv/**,.venv-vercel-test/**}"
     }
   }
