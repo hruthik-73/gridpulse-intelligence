@@ -191,3 +191,38 @@ class GridAnomalyResponse(BaseModel):
 
     risk_score: float
     severity: str
+
+
+class RegionalGridResponse(BaseModel):
+    """Explainable regional grid-pressure observation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    period: str
+
+    region: str
+    region_name: str
+
+    demand_mwh: float
+    demand_forecast_mwh: float | None
+    net_generation_mwh: float | None
+    total_interchange_mwh: float | None
+
+    demand_baseline_mwh: float
+
+    demand_vs_baseline_pct: float
+    demand_change_pct: float | None
+
+    forecast_error_pct: float | None
+    generation_gap_pct: float | None
+
+    history_points: int
+
+    demand_deviation_score: float
+    forecast_deviation_score: float
+    generation_deviation_score: float
+
+    pressure_score: float
+    severity: str

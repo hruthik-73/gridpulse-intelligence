@@ -21,6 +21,7 @@ from gridpulse_intelligence.api_models import (
     GridAnomalyResponse,
     PlatformHealthResponse,
     PlatformStatus,
+    RegionalGridResponse,
     WeatherForecast,
 )
 from gridpulse_intelligence.api_repository import (
@@ -29,6 +30,7 @@ from gridpulse_intelligence.api_repository import (
 )
 from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
 from gridpulse_intelligence.platform_health import PlatformHealthService
+from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 
 DEFAULT_DATABASE_PATH = "data/warehouse/gridpulse.duckdb"
 
@@ -58,8 +60,9 @@ app = FastAPI(
     version="0.1.0",
     description=(
         "Serving layer for GridPulse electricity, weather, "
-        "EV infrastructure, platform health, and historical "
-        "grid-risk intelligence."
+        "EV infrastructure, platform health, historical "
+        "grid-risk intelligence, and regional grid-pressure "
+        "intelligence."
     ),
 )
 
@@ -328,7 +331,7 @@ def grid_anomalies(
         ),
     ] = 20,
 ) -> list[GridAnomalyResponse]:
-    """Return explainable historical grid-risk scores."""
+    """Return explainable historical balancing-authority risk scores."""
 
     try:
         rows = load_grid_anomalies(
@@ -359,6 +362,63 @@ def grid_anomalies(
             generation_baseline_pct=row.generation_baseline_pct,
             generation_deviation_score=row.generation_deviation_score,
             risk_score=row.risk_score,
+            severity=row.severity,
+        )
+        for row in rows
+    ]
+
+
+@app.get(
+    "/api/v1/grid/regions",
+    response_model=list[RegionalGridResponse],
+    tags=[
+        "grid",
+    ],
+)
+def grid_regions(
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=50,
+        ),
+    ] = 20,
+) -> list[RegionalGridResponse]:
+    """Return explainable historical regional grid-pressure signals."""
+
+    try:
+        rows = load_regional_grid_signals(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            ),
+            limit=limit,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Regional grid intelligence is currently unavailable."),
+        ) from exc
+
+    return [
+        RegionalGridResponse(
+            period=row.period,
+            region=row.region,
+            region_name=row.region_name,
+            demand_mwh=row.demand_mwh,
+            demand_forecast_mwh=row.demand_forecast_mwh,
+            net_generation_mwh=row.net_generation_mwh,
+            total_interchange_mwh=row.total_interchange_mwh,
+            demand_baseline_mwh=row.demand_baseline_mwh,
+            demand_vs_baseline_pct=row.demand_vs_baseline_pct,
+            demand_change_pct=row.demand_change_pct,
+            forecast_error_pct=row.forecast_error_pct,
+            generation_gap_pct=row.generation_gap_pct,
+            history_points=row.history_points,
+            demand_deviation_score=row.demand_deviation_score,
+            forecast_deviation_score=row.forecast_deviation_score,
+            generation_deviation_score=row.generation_deviation_score,
+            pressure_score=row.pressure_score,
             severity=row.severity,
         )
         for row in rows

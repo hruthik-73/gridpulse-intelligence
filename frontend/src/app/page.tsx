@@ -2,6 +2,7 @@ import AnalyticsExplorer from "@/components/AnalyticsExplorer";
 import GridCore from "@/components/GridCore";
 import GridRiskPanel from "@/components/GridRiskPanel";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
+import RegionalGridPanel from "@/components/RegionalGridPanel";
 
 import {
   getEVCities,
@@ -9,6 +10,7 @@ import {
   getGridAuthorities,
   getPlatformHealth,
   getPlatformStatus,
+  getRegionalGridSignals,
   getWeather,
 } from "@/lib/api";
 
@@ -18,6 +20,7 @@ import type {
   GridAuthority,
   PlatformHealth,
   PlatformStatus,
+  RegionalGridSignal,
   WeatherForecast,
 } from "@/lib/api";
 
@@ -32,6 +35,7 @@ interface DashboardData {
 
   authorities: GridAuthority[];
   anomalies: GridAnomaly[];
+  regions: RegionalGridSignal[];
   evCities: EVCity[];
   weather: WeatherForecast[];
 
@@ -57,7 +61,11 @@ async function getDashboardData(): Promise<DashboardData> {
       | PlatformHealth
       | null = null;
 
-    let anomalies: GridAnomaly[] = [];
+    let anomalies:
+      GridAnomaly[] = [];
+
+    let regions:
+      RegionalGridSignal[] = [];
 
     try {
       health =
@@ -68,9 +76,20 @@ async function getDashboardData(): Promise<DashboardData> {
 
     try {
       anomalies =
-        await getGridAnomalies(20);
+        await getGridAnomalies(
+          20,
+        );
     } catch {
       anomalies = [];
+    }
+
+    try {
+      regions =
+        await getRegionalGridSignals(
+          20,
+        );
+    } catch {
+      regions = [];
     }
 
     return {
@@ -78,6 +97,7 @@ async function getDashboardData(): Promise<DashboardData> {
       health,
       authorities,
       anomalies,
+      regions,
       evCities,
       weather,
       apiAvailable: true,
@@ -88,6 +108,7 @@ async function getDashboardData(): Promise<DashboardData> {
       health: null,
       authorities: [],
       anomalies: [],
+      regions: [],
       evCities: [],
       weather: [],
       apiAvailable: false,
@@ -126,6 +147,7 @@ export default async function Home() {
     health,
     authorities,
     anomalies,
+    regions,
     evCities,
     weather,
     apiAvailable,
@@ -178,7 +200,7 @@ export default async function Home() {
           )
         : "—",
       detail:
-        "Balancing regions",
+        "Balancing authorities",
     },
     {
       label:
@@ -405,6 +427,10 @@ export default async function Home() {
 
         <GridRiskPanel
           anomalies={anomalies}
+        />
+
+        <RegionalGridPanel
+          regions={regions}
         />
 
         <AnalyticsExplorer
