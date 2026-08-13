@@ -36,6 +36,12 @@ import type {
 
 interface RegionalGridMapProps {
   regions: RegionalGridSignal[];
+
+  selectedCode?: string;
+
+  onSelect?: (
+    region: string,
+  ) => void;
 }
 
 
@@ -430,6 +436,9 @@ function ScoreRing({
 
 export default function RegionalGridMap({
   regions,
+  selectedCode:
+    controlledSelectedCode,
+  onSelect,
 }: RegionalGridMapProps) {
   const [
     topology,
@@ -439,12 +448,28 @@ export default function RegionalGridMap({
   >(null);
 
   const [
-    selectedCode,
-    setSelectedCode,
+    internalSelectedCode,
+    setInternalSelectedCode,
   ] = useState(
     regions[0]?.region ??
       "",
   );
+
+  const selectedCode =
+    controlledSelectedCode
+    ?? internalSelectedCode;
+
+  function selectRegion(
+    regionCode: string,
+  ): void {
+    setInternalSelectedCode(
+      regionCode,
+    );
+
+    onSelect?.(
+      regionCode,
+    );
+  }
 
   useEffect(
     () => {
@@ -949,7 +974,7 @@ export default function RegionalGridMap({
                       tabIndex={0}
                       aria-label={`Inspect ${region.region_name}`}
                       onClick={() =>
-                        setSelectedCode(
+                        selectRegion(
                           region.region,
                         )
                       }
@@ -962,7 +987,7 @@ export default function RegionalGridMap({
                           || event.key
                             === " "
                         ) {
-                          setSelectedCode(
+                          selectRegion(
                             region.region,
                           );
                         }
@@ -1389,7 +1414,7 @@ export default function RegionalGridMap({
                         }
                         type="button"
                         onClick={() =>
-                          setSelectedCode(
+                          selectRegion(
                             item.region.region,
                           )
                         }

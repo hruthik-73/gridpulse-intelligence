@@ -226,3 +226,31 @@ class RegionalGridResponse(BaseModel):
 
     pressure_score: float
     severity: str
+
+
+class RegionalGridHistoryResponse(BaseModel):
+    """Historical regional grid observation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    period: str
+
+    region: str
+    region_name: str
+
+    demand_mwh: float
+    demand_forecast_mwh: float | None
+    net_generation_mwh: float | None
+    total_interchange_mwh: float | None
+
+    demand_baseline_mwh: float | None
+
+    demand_vs_baseline_pct: float | None
+    demand_change_pct: float | None
+
+    forecast_error_pct: float | None
+    generation_gap_pct: float | None
+
+    contains_replay: bool

@@ -3,6 +3,7 @@ import GridCore from "@/components/GridCore";
 import GridRiskPanel from "@/components/GridRiskPanel";
 import NationalCommandCenter from "@/components/NationalCommandCenter";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
+import RegionalGridExperience from "@/components/RegionalGridExperience";
 import RegionalGridPanel from "@/components/RegionalGridPanel";
 
 import {
@@ -445,6 +446,15 @@ export default async function Home() {
           }
           health={health}
         />
+
+        <div
+          id="grid-map"
+          className="scroll-mt-6"
+        >
+          <RegionalGridExperience
+            regions={regions}
+          />
+        </div>
 
         <div
           id="grid-risk"
