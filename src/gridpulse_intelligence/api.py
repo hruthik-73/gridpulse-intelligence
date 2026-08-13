@@ -24,6 +24,7 @@ from gridpulse_intelligence.api_models import (
     RegionalGridHistoryResponse,
     RegionalGridResponse,
     RegionalGridTimelineResponse,
+    SourceFreshnessResponse,
     WeatherForecast,
 )
 from gridpulse_intelligence.api_repository import (
@@ -35,6 +36,7 @@ from gridpulse_intelligence.platform_health import PlatformHealthService
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
 from gridpulse_intelligence.regional_timeline import load_regional_timeline
+from gridpulse_intelligence.source_freshness import load_source_freshness
 
 DEFAULT_DATABASE_PATH = "data/warehouse/gridpulse.duckdb"
 
@@ -317,6 +319,45 @@ def platform_health(
             "kafka_consumer",
         ),
     )
+
+
+@app.get(
+    "/api/v1/platform/freshness",
+    response_model=list[SourceFreshnessResponse],
+    tags=[
+        "platform",
+    ],
+)
+def source_freshness() -> list[SourceFreshnessResponse]:
+    """Return source-level operational freshness intelligence."""
+
+    try:
+        rows = load_source_freshness(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            )
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Source freshness intelligence is currently unavailable."),
+        ) from exc
+
+    return [
+        SourceFreshnessResponse(
+            source=row.source,
+            display_name=row.display_name,
+            dataset=row.dataset,
+            state=row.state,
+            latest_timestamp=row.latest_timestamp,
+            age_hours=row.age_hours,
+            timestamp_basis=row.timestamp_basis,
+            fresh_within_hours=row.fresh_within_hours,
+            stale_after_hours=row.stale_after_hours,
+        )
+        for row in rows
+    ]
 
 
 @app.get(

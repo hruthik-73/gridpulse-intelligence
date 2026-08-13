@@ -291,3 +291,25 @@ class RegionalGridTimelineResponse(BaseModel):
     severity: str
 
     contains_replay: bool
+
+
+class SourceFreshnessResponse(BaseModel):
+    """Operational freshness state for one GridPulse source."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    source: str
+    display_name: str
+    dataset: str
+
+    state: str
+
+    latest_timestamp: datetime | None
+    age_hours: float | None
+
+    timestamp_basis: str
+
+    fresh_within_hours: float
+    stale_after_hours: float

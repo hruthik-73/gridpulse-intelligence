@@ -1,4 +1,5 @@
 import AnalyticsExplorer from "@/components/AnalyticsExplorer";
+import DataFreshnessPanel from "@/components/DataFreshnessPanel";
 import GridCore from "@/components/GridCore";
 import GridRiskPanel from "@/components/GridRiskPanel";
 import NationalCommandCenter from "@/components/NationalCommandCenter";
@@ -446,6 +447,8 @@ export default async function Home() {
           }
           health={health}
         />
+
+        <DataFreshnessPanel />
 
         <div
           id="grid-map"

@@ -322,6 +322,36 @@ export interface RegionalGridTimelinePoint {
 }
 
 
+
+export type FreshnessState =
+  | "FRESH"
+  | "DELAYED"
+  | "STALE"
+  | "UNKNOWN";
+
+
+export interface SourceFreshness {
+  source: string;
+  display_name: string;
+  dataset: string;
+
+  state: FreshnessState;
+
+  latest_timestamp:
+    | string
+    | null;
+
+  age_hours:
+    | number
+    | null;
+
+  timestamp_basis: string;
+
+  fresh_within_hours: number;
+  stale_after_hours: number;
+}
+
+
 async function fetchJSON<T>(
   path: string,
 ): Promise<T> {
@@ -429,6 +459,14 @@ export async function getWeather(
 ): Promise<WeatherForecast[]> {
   return fetchJSON<WeatherForecast[]>(
     `/api/v1/weather?limit=${limit}`,
+  );
+}
+
+
+
+export async function getSourceFreshness(): Promise<SourceFreshness[]> {
+  return fetchJSON<SourceFreshness[]>(
+    "/api/v1/platform/freshness",
   );
 }
 
