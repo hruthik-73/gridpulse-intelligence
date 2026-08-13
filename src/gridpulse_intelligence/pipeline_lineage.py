@@ -13,6 +13,7 @@ from gridpulse_intelligence.incident_intelligence import (
 from gridpulse_intelligence.pipeline_runs import (
     PipelineRun,
 )
+from gridpulse_intelligence.pipeline_sla import evaluate_pipeline_slas
 from gridpulse_intelligence.source_freshness import (
     SourceFreshnessSignal,
 )
@@ -77,6 +78,14 @@ class PipelineLineageNode:
 
     recent_runs: int
     recent_failures: int
+
+    operational_status: str | None = None
+    current_runtime_seconds: float | None = None
+    expected_max_runtime_seconds: float | None = None
+    runtime_threshold_basis: str | None = None
+    success_age_hours: float | None = None
+    max_success_age_hours: float | None = None
+    sla_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -260,6 +269,8 @@ def build_pipeline_lineage(
 
     run_list = list(runs)
 
+    sla_by_stage = {signal.stage: signal for signal in evaluate_pipeline_slas(run_list)}
+
     freshness_by_source = {signal.source: signal for signal in freshness_list}
 
     components_by_name = {component.name: component for component in components}
@@ -434,17 +445,40 @@ def build_pipeline_lineage(
         x: int,
         telemetry: PipelineStageTelemetry,
     ) -> PipelineLineageNode:
+        sla = sla_by_stage.get(telemetry.stage)
+
+        effective_state = state
+
+        if sla is not None:
+            if sla.status in {
+                "FAILED",
+                "STALLED",
+            }:
+                effective_state = "UNHEALTHY"
+
+            elif sla.status == "OVERDUE":
+                effective_state = "DEGRADED"
+
+            elif sla.status in {
+                "RUNNING",
+                "SUCCEEDED",
+            }:
+                effective_state = "HEALTHY"
+
+            elif sla.status == "NO_RUN_DATA":
+                effective_state = "UNKNOWN"
+
         return PipelineLineageNode(
             node_id=node_id,
             label=label,
             layer=layer,
             technology=technology,
-            state=state,
+            state=effective_state,
             detail=detail,
             source=None,
             position_x=x,
             position_y=50,
-            run_stage=(telemetry.stage),
+            run_stage=telemetry.stage,
             latest_run_status=(telemetry.latest_status),
             latest_run_started_at=(telemetry.latest_started_at),
             latest_run_finished_at=(telemetry.latest_finished_at),
@@ -452,6 +486,13 @@ def build_pipeline_lineage(
             last_success_at=(telemetry.last_success_at),
             recent_runs=(telemetry.recent_runs),
             recent_failures=(telemetry.recent_failures),
+            operational_status=(sla.status if sla else None),
+            current_runtime_seconds=(sla.current_runtime_seconds if sla else None),
+            expected_max_runtime_seconds=(sla.expected_max_runtime_seconds if sla else None),
+            runtime_threshold_basis=(sla.runtime_threshold_basis if sla else None),
+            success_age_hours=(sla.success_age_hours if sla else None),
+            max_success_age_hours=(sla.max_success_age_hours if sla else None),
+            sla_detail=(sla.detail if sla else None),
         )
 
     nodes = [

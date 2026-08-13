@@ -705,6 +705,94 @@ function NodeInspector({
         </div>
       )}
 
+      {node.run_stage && (
+        <div className="mt-3 rounded-xl border border-sky-300/[0.07] bg-sky-300/[0.018] p-4">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-[7px] uppercase tracking-[0.13em] text-sky-200/45">
+              GridPulse operational SLA
+            </p>
+
+            <span
+              className={`text-[8px] font-semibold ${
+                node.operational_status === "FAILED"
+                || node.operational_status === "STALLED"
+                  ? "text-rose-300"
+                  : node.operational_status === "OVERDUE"
+                    ? "text-amber-200"
+                    : node.operational_status === "RUNNING"
+                      ? "text-sky-200"
+                      : node.operational_status === "SUCCEEDED"
+                        ? "text-emerald-200"
+                        : "text-white/30"
+              }`}
+            >
+              {node.operational_status
+                ?? "NO RUN DATA"}
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3 border-t border-white/[0.045] pt-4">
+            <InspectorRow
+              label="Current runtime"
+              value={
+                formatDuration(
+                  node.current_runtime_seconds,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Expected max"
+              value={
+                formatDuration(
+                  node.expected_max_runtime_seconds,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Runtime basis"
+              value={
+                node.runtime_threshold_basis
+                  ?.replaceAll(
+                    "_",
+                    " ",
+                  )
+                ?? "—"
+              }
+            />
+
+            <InspectorRow
+              label="Last success age"
+              value={
+                node.success_age_hours === null
+                  ? "—"
+                  : `${node.success_age_hours.toFixed(1)}h`
+              }
+            />
+
+            <InspectorRow
+              label="Success SLA"
+              value={
+                node.max_success_age_hours === null
+                  ? "—"
+                  : `${node.max_success_age_hours.toFixed(0)}h`
+              }
+            />
+          </div>
+
+          {node.sla_detail && (
+            <p className="mt-4 border-t border-white/[0.045] pt-3 text-[8px] leading-4 text-white/30">
+              {node.sla_detail}
+            </p>
+          )}
+
+          <p className="mt-3 text-[6px] uppercase tracking-[0.1em] text-white/15">
+            GridPulse thresholds · not upstream guarantees
+          </p>
+        </div>
+      )}
+
       {node.source && (
         <div className="mt-3 rounded-xl border border-emerald-300/[0.07] bg-emerald-300/[0.018] p-4">
           <p className="text-[7px] uppercase tracking-[0.13em] text-emerald-200/45">

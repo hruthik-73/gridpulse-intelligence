@@ -465,6 +465,13 @@ def pipeline_lineage(
                 last_success_at=node.last_success_at,
                 recent_runs=node.recent_runs,
                 recent_failures=node.recent_failures,
+                operational_status=node.operational_status,
+                current_runtime_seconds=node.current_runtime_seconds,
+                expected_max_runtime_seconds=(node.expected_max_runtime_seconds),
+                runtime_threshold_basis=node.runtime_threshold_basis,
+                success_age_hours=node.success_age_hours,
+                max_success_age_hours=node.max_success_age_hours,
+                sla_detail=node.sla_detail,
             )
             for node in nodes
         ],

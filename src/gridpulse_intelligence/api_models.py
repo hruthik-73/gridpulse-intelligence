@@ -387,6 +387,14 @@ class PipelineLineageNodeResponse(BaseModel):
     recent_runs: int
     recent_failures: int
 
+    operational_status: str | None = None
+    current_runtime_seconds: float | None = None
+    expected_max_runtime_seconds: float | None = None
+    runtime_threshold_basis: str | None = None
+    success_age_hours: float | None = None
+    max_success_age_hours: float | None = None
+    sla_detail: str | None = None
+
 
 class PipelineLineageEdgeResponse(BaseModel):
     """Directed edge between lineage nodes."""

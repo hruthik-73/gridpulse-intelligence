@@ -1,6 +1,6 @@
 """Tests for GridPulse pipeline lineage intelligence."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from gridpulse_intelligence.incident_intelligence import (
     ComponentState,
@@ -285,3 +285,74 @@ def test_warehouse_runtime_state_is_visible() -> None:
     assert by_id["duckdb"].state == "UNHEALTHY"
 
     assert by_id["fastapi"].state == "UNHEALTHY"
+
+
+def test_stalled_execution_is_unhealthy() -> None:
+    """A long-running STARTED execution should become unhealthy."""
+
+    started_at = datetime.now(UTC) - timedelta(
+        hours=1,
+    )
+
+    stalled_run = PipelineRun(
+        run_id="stalled-run",
+        stage="kafka_to_bronze",
+        status="STARTED",
+        started_at=started_at,
+        finished_at=None,
+        duration_seconds=None,
+        exit_code=None,
+        records_processed=None,
+        command=("test",),
+    )
+
+    nodes, _ = build_pipeline_lineage(
+        freshness=base_freshness(),
+        components=healthy_components(),
+        incidents=[],
+        runs=[stalled_run],
+    )
+
+    bronze = next(node for node in nodes if node.node_id == "spark-bronze")
+
+    assert bronze.operational_status == "STALLED"
+
+    assert bronze.state == "UNHEALTHY"
+
+
+def test_overdue_success_is_degraded() -> None:
+    """A successful stage with an old last success should be degraded."""
+
+    started_at = datetime.now(UTC) - timedelta(
+        hours=30,
+    )
+
+    old_success = PipelineRun(
+        run_id="old-success",
+        stage="build_gold",
+        status="SUCCEEDED",
+        started_at=started_at,
+        finished_at=(
+            started_at
+            + timedelta(
+                seconds=30,
+            )
+        ),
+        duration_seconds=30.0,
+        exit_code=0,
+        records_processed=None,
+        command=("test",),
+    )
+
+    nodes, _ = build_pipeline_lineage(
+        freshness=base_freshness(),
+        components=healthy_components(),
+        incidents=[],
+        runs=[old_success],
+    )
+
+    gold = next(node for node in nodes if node.node_id == "spark-gold")
+
+    assert gold.operational_status == "OVERDUE"
+
+    assert gold.state == "DEGRADED"

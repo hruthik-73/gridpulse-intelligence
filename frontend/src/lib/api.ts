@@ -444,6 +444,40 @@ export interface PipelineLineageNode {
 
   recent_runs: number;
   recent_failures: number;
+
+  operational_status:
+    | "SUCCEEDED"
+    | "RUNNING"
+    | "FAILED"
+    | "STALLED"
+    | "OVERDUE"
+    | "NO_RUN_DATA"
+    | "UNKNOWN"
+    | null;
+
+  current_runtime_seconds:
+    | number
+    | null;
+
+  expected_max_runtime_seconds:
+    | number
+    | null;
+
+  runtime_threshold_basis:
+    | string
+    | null;
+
+  success_age_hours:
+    | number
+    | null;
+
+  max_success_age_hours:
+    | number
+    | null;
+
+  sla_detail:
+    | string
+    | null;
 }
 
 
