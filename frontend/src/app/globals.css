@@ -1,3 +1,8 @@
+
+html {
+  scroll-behavior: smooth;
+}
+
 @import "tailwindcss";
 
 :root {
@@ -480,4 +485,8 @@ body {
   .floating-node {
     display: none;
   }
+}
+
+[id] {
+  scroll-margin-top: 7rem;
 }

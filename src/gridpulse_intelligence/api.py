@@ -17,6 +17,8 @@ from gridpulse_intelligence.api_models import (
     APIHealth,
     BalancingAuthorityPerformance,
     ComponentHealthResponse,
+    DataQualityDatasetResponse,
+    DataQualityResponse,
     EVCityRanking,
     GridAnomalyResponse,
     OperationalIncidentResponse,
@@ -37,6 +39,9 @@ from gridpulse_intelligence.api_models import (
 from gridpulse_intelligence.api_repository import (
     GridPulseRepository,
     GridPulseRepositoryError,
+)
+from gridpulse_intelligence.data_quality import (
+    build_data_quality_snapshot,
 )
 from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
 from gridpulse_intelligence.incident_intelligence import (
@@ -924,3 +929,54 @@ def weather(
         ) from exc
 
     return [WeatherForecast.model_validate(row) for row in rows]
+
+
+@app.get(
+    "/api/v1/platform/data-quality",
+    response_model=DataQualityResponse,
+    tags=[
+        "platform",
+    ],
+)
+def data_quality() -> DataQualityResponse:
+    """Return current lakehouse data-quality intelligence."""
+
+    try:
+        snapshot = build_data_quality_snapshot()
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Data-quality intelligence is currently unavailable."),
+        ) from exc
+
+    return DataQualityResponse(
+        evaluated_at=(snapshot.evaluated_at),
+        status=(snapshot.status),
+        bronze_input_rows=(snapshot.bronze_input_rows),
+        silver_output_rows=(snapshot.silver_output_rows),
+        gold_output_rows=(snapshot.gold_output_rows),
+        removed_before_silver=(snapshot.removed_before_silver),
+        quality_failure_rows=(snapshot.quality_failure_rows),
+        deduplicated_rows=(snapshot.deduplicated_rows),
+        silver_retention_pct=(snapshot.silver_retention_pct),
+        quality_failure_pct=(snapshot.quality_failure_pct),
+        conservation_state=(snapshot.conservation_state),
+        silver_datasets=[
+            DataQualityDatasetResponse(
+                dataset=item.dataset,
+                layer=item.layer,
+                rows=item.rows,
+            )
+            for item in (snapshot.silver_datasets)
+        ],
+        gold_datasets=[
+            DataQualityDatasetResponse(
+                dataset=item.dataset,
+                layer=item.layer,
+                rows=item.rows,
+            )
+            for item in (snapshot.gold_datasets)
+        ],
+        detail=(snapshot.detail),
+    )

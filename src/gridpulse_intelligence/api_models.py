@@ -462,3 +462,47 @@ class PipelineRunSummaryResponse(BaseModel):
     last_success_at: datetime | None
 
     runs: list[PipelineRunResponse]
+
+
+class DataQualityDatasetResponse(BaseModel):
+    """Current row count for one lakehouse dataset."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    dataset: str
+    layer: str
+    rows: int | None
+
+
+class DataQualityResponse(BaseModel):
+    """Current GridPulse lakehouse data-quality snapshot."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    evaluated_at: datetime
+
+    status: str
+
+    bronze_input_rows: int | None
+    silver_output_rows: int | None
+    gold_output_rows: int | None
+
+    removed_before_silver: int | None
+
+    quality_failure_rows: int | None
+    deduplicated_rows: int | None
+
+    silver_retention_pct: float | None
+    quality_failure_pct: float | None
+
+    conservation_state: str
+
+    silver_datasets: list[DataQualityDatasetResponse]
+
+    gold_datasets: list[DataQualityDatasetResponse]
+
+    detail: str

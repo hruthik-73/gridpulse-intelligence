@@ -5,7 +5,10 @@ import {
   CloudSun,
   PlugZap,
 } from "lucide-react";
-import { useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 import {
   Area,
   AreaChart,
@@ -80,6 +83,58 @@ export default function AnalyticsExplorer({
     activeTab,
     setActiveTab,
   ] = useState<AnalyticsTab>("grid");
+
+  useEffect(
+    () => {
+      function handleAnalyticsNavigation(
+        event: MouseEvent,
+      ) {
+        const target =
+          event.target;
+
+        if (
+          !(target instanceof Element)
+        ) {
+          return;
+        }
+
+        const link =
+          target.closest<HTMLAnchorElement>(
+            "a[data-analytics-tab]",
+          );
+
+        if (!link) {
+          return;
+        }
+
+        const tab =
+          link.dataset.analyticsTab;
+
+        if (
+          tab === "grid"
+          || tab === "weather"
+          || tab === "ev"
+        ) {
+          setActiveTab(
+            tab,
+          );
+        }
+      }
+
+      document.addEventListener(
+        "click",
+        handleAnalyticsNavigation,
+      );
+
+      return () => {
+        document.removeEventListener(
+          "click",
+          handleAnalyticsNavigation,
+        );
+      };
+    },
+    [],
+  );
 
   const gridData = authorities.map(
     (authority) => ({

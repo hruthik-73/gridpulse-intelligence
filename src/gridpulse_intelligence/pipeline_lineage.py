@@ -44,6 +44,9 @@ class PipelineStageTelemetry:
     recent_runs: int
     recent_failures: int
 
+    latest_records_processed: int | None = None
+    latest_throughput_records_per_second: float | None = None
+
 
 @dataclass(frozen=True)
 class PipelineLineageNode:
@@ -78,6 +81,9 @@ class PipelineLineageNode:
 
     recent_runs: int
     recent_failures: int
+
+    latest_records_processed: int | None = None
+    latest_throughput_records_per_second: float | None = None
 
     operational_status: str | None = None
     current_runtime_seconds: float | None = None
@@ -177,6 +183,8 @@ def _stage_telemetry(
             last_success_at=None,
             recent_runs=0,
             recent_failures=0,
+            latest_records_processed=None,
+            latest_throughput_records_per_second=None,
         )
 
     latest = stage_runs[0]
@@ -195,14 +203,16 @@ def _stage_telemetry(
     return PipelineStageTelemetry(
         stage=stage,
         latest_status=latest.status,
-        latest_started_at=(latest.started_at),
-        latest_finished_at=(latest.finished_at),
+        latest_started_at=latest.started_at,
+        latest_finished_at=latest.finished_at,
         latest_duration_seconds=(latest.duration_seconds),
         last_success_at=(
             (last_success.finished_at or last_success.started_at) if last_success else None
         ),
         recent_runs=len(stage_runs),
         recent_failures=sum(run.status == "FAILED" for run in stage_runs),
+        latest_records_processed=(latest.records_processed),
+        latest_throughput_records_per_second=(latest.throughput_records_per_second),
     )
 
 
@@ -486,6 +496,8 @@ def build_pipeline_lineage(
             last_success_at=(telemetry.last_success_at),
             recent_runs=(telemetry.recent_runs),
             recent_failures=(telemetry.recent_failures),
+            latest_records_processed=(telemetry.latest_records_processed),
+            latest_throughput_records_per_second=(telemetry.latest_throughput_records_per_second),
             operational_status=(sla.status if sla else None),
             current_runtime_seconds=(sla.current_runtime_seconds if sla else None),
             expected_max_runtime_seconds=(sla.expected_max_runtime_seconds if sla else None),

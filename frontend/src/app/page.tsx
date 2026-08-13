@@ -7,6 +7,7 @@ import OperationalIncidentPanel from "@/components/OperationalIncidentPanel";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
 import PipelineLineagePanel from "@/components/PipelineLineagePanel";
 import PipelineRunsPanel from "@/components/PipelineRunsPanel";
+import DataQualityPanel from "@/components/DataQualityPanel";
 import RegionalGridExperience from "@/components/RegionalGridExperience";
 import RegionalGridPanel from "@/components/RegionalGridPanel";
 
@@ -262,19 +263,41 @@ export default async function Home() {
 
           <div className="hidden items-center gap-7 text-xs text-white/45 md:flex">
             <span>
-              Grid
+              <a
+                href="#grid-map"
+                className="transition-colors duration-200 hover:text-emerald-200"
+              >
+                Grid
+              </a>
             </span>
 
             <span>
-              Weather
+              <a
+                href="#analytics-explorer"
+                className="transition-colors duration-200 hover:text-emerald-200"
+
+            data-analytics-tab="weather">
+                Weather
+              </a>
             </span>
 
             <span>
-              EV Infrastructure
+              <a
+                href="#analytics-explorer"
+                className="transition-colors duration-200 hover:text-emerald-200"
+
+            data-analytics-tab="ev">
+                EV Infrastructure
+              </a>
             </span>
 
             <span>
-              Observability
+              <a
+                href="#platform-health"
+                className="transition-colors duration-200 hover:text-emerald-200"
+              >
+                Observability
+              </a>
             </span>
           </div>
 
@@ -451,10 +474,6 @@ export default async function Home() {
           health={health}
         />
 
-        <DataFreshnessPanel />
-
-        <OperationalIncidentPanel />
-
 
         <div
           id="grid-map"
@@ -464,6 +483,7 @@ export default async function Home() {
             regions={regions}
           />
         </div>
+
 
         <div
           id="grid-risk"
@@ -476,6 +496,7 @@ export default async function Home() {
           />
         </div>
 
+
         <div
           id="regional-grid"
           className="scroll-mt-6"
@@ -486,6 +507,7 @@ export default async function Home() {
             }
           />
         </div>
+
 
         <div
           id="analytics-explorer"
@@ -504,137 +526,31 @@ export default async function Home() {
           />
         </div>
 
+
         <div
           id="platform-health"
           className="scroll-mt-6"
         >
-          <PipelineLineagePanel />
-
-        <PipelineRunsPanel />
-
-        <PlatformHealthPanel
+          <PlatformHealthPanel
             health={health}
           />
         </div>
 
-        <section className="mt-5">
-          <article className="architecture-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">
-                  SYSTEM ARCHITECTURE
-                </p>
 
-                <h2 className="panel-title">
-                  From public APIs
-                  to intelligence
-                </h2>
-              </div>
+        <DataFreshnessPanel />
 
-              <span className="text-[10px] uppercase tracking-[0.18em] text-white/25">
-                GridPulse v0.1
-              </span>
-            </div>
 
-            <div className="pipeline-track">
-              {[
-                [
-                  "01",
-                  "Public APIs",
-                  "EIA · NWS · AFDC",
-                ],
-                [
-                  "02",
-                  "Kafka",
-                  "Event streaming",
-                ],
-                [
-                  "03",
-                  "Spark",
-                  "Bronze · Silver · Gold",
-                ],
-                [
-                  "04",
-                  "dbt",
-                  "Analytics marts",
-                ],
-                [
-                  "05",
-                  "FastAPI",
-                  "Serving layer",
-                ],
-                [
-                  "06",
-                  "Next.js",
-                  "Intelligence UI",
-                ],
-              ].map(
-                (
-                  [
-                    number,
-                    title,
-                    description,
-                  ],
-                  index,
-                ) => (
-                  <div
-                    key={title}
-                    className="pipeline-step"
-                  >
-                    <span className="pipeline-number">
-                      {number}
-                    </span>
+        <OperationalIncidentPanel />
 
-                    <div>
-                      <p className="text-sm font-medium text-white/85">
-                        {title}
-                      </p>
 
-                      <p className="mt-1 text-[10px] text-white/30">
-                        {
-                          description
-                        }
-                      </p>
-                    </div>
+        <PipelineLineagePanel />
 
-                    {index <
-                      5 && (
-                      <span className="pipeline-connector">
-                        →
-                      </span>
-                    )}
-                  </div>
-                ),
-              )}
-            </div>
 
-            <div className="architecture-footer">
-              <span>
-                DATA QUALITY
-              </span>
+        <PipelineRunsPanel />
 
-              <span>
-                OBSERVABILITY
-              </span>
 
-              <span>
-                LINEAGE
-              </span>
+        <DataQualityPanel />
 
-              <span>
-                REPLAY SAFE
-              </span>
-
-              <span>
-                DEAD LETTER QUEUE
-              </span>
-
-              <span>
-                CONTRACT VALIDATION
-              </span>
-            </div>
-          </article>
-        </section>
 
         <footer className="mt-6 flex flex-col justify-between gap-3 px-2 py-5 text-[10px] uppercase tracking-[0.18em] text-white/20 sm:flex-row">
           <span>
@@ -651,6 +567,7 @@ export default async function Home() {
           </span>
         </footer>
       </section>
-    </main>
+
+</main>
   );
 }

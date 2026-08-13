@@ -700,3 +700,69 @@ export async function getPlatformHealth(): Promise<PlatformHealth> {
     "/api/v1/platform/health",
   );
 }
+
+
+export interface DataQualityDataset {
+  dataset: string;
+  layer: string;
+
+  rows:
+    | number
+    | null;
+}
+
+
+export interface DataQualitySnapshot {
+  evaluated_at: string;
+
+  status: string;
+
+  bronze_input_rows:
+    | number
+    | null;
+
+  silver_output_rows:
+    | number
+    | null;
+
+  gold_output_rows:
+    | number
+    | null;
+
+  removed_before_silver:
+    | number
+    | null;
+
+  quality_failure_rows:
+    | number
+    | null;
+
+  deduplicated_rows:
+    | number
+    | null;
+
+  silver_retention_pct:
+    | number
+    | null;
+
+  quality_failure_pct:
+    | number
+    | null;
+
+  conservation_state: string;
+
+  silver_datasets:
+    DataQualityDataset[];
+
+  gold_datasets:
+    DataQualityDataset[];
+
+  detail: string;
+}
+
+
+export async function getDataQuality(): Promise<DataQualitySnapshot> {
+  return fetchJSON<DataQualitySnapshot>(
+    "/api/v1/platform/data-quality",
+  );
+}

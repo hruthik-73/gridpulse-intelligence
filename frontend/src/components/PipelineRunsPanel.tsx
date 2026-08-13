@@ -9,6 +9,14 @@ import type {
 } from "@/lib/api";
 
 
+const PIPELINE_STAGES = [
+  "kafka_to_bronze",
+  "bronze_to_silver",
+  "build_gold",
+  "dbt_build",
+] as const;
+
+
 function statusStyle(
   status: PipelineRunStatus,
 ) {
@@ -46,9 +54,6 @@ function stageTitle(
 ): string {
   const titles:
     Record<string, string> = {
-      telemetry_smoke:
-        "Telemetry Health Check",
-
       kafka_to_bronze:
         "Kafka → Bronze Ingestion",
 
@@ -60,15 +65,6 @@ function stageTitle(
 
       dbt_build:
         "dbt Analytics Build",
-
-      eia_ingestion:
-        "EIA Grid Ingestion",
-
-      nws_ingestion:
-        "NWS Weather Ingestion",
-
-      afdc_ingestion:
-        "AFDC EV Ingestion",
     };
 
   return (
@@ -92,29 +88,17 @@ function stageDescription(
 ): string {
   const descriptions:
     Record<string, string> = {
-      telemetry_smoke:
-        "Execution telemetry verification",
-
       kafka_to_bronze:
-        "Streaming events into the Bronze layer",
+        "Kafka events into replay-safe Bronze storage",
 
       bronze_to_silver:
         "Validation, normalization, and deduplication",
 
       build_gold:
-        "Building analytics-ready Gold marts",
+        "Analytics-ready Gold mart generation",
 
       dbt_build:
-        "Testing and publishing analytical models",
-
-      eia_ingestion:
-        "Electricity grid source ingestion",
-
-      nws_ingestion:
-        "Weather forecast source ingestion",
-
-      afdc_ingestion:
-        "EV infrastructure source ingestion",
+        "Analytical modeling, testing, and publishing",
     };
 
   return (
@@ -154,26 +138,6 @@ function formatDuration(
 }
 
 
-function formatThroughput(
-  value:
-    | number
-    | null,
-): string {
-  if (value === null) {
-    return "—";
-  }
-
-  return `${new Intl.NumberFormat(
-    "en-US",
-    {
-      maximumFractionDigits: 1,
-    },
-  ).format(
-    value,
-  )}/sec`;
-}
-
-
 function formatTime(
   value:
     | string
@@ -209,15 +173,153 @@ function formatTime(
 }
 
 
+function formatRecords(
+  value:
+    | number
+    | null,
+): string {
+  if (value === null) {
+    return "—";
+  }
+
+  if (value === 0) {
+    return "No new records";
+  }
+
+  return new Intl.NumberFormat(
+    "en-US",
+  ).format(
+    value,
+  );
+}
+
+
+function formatThroughput(
+  value:
+    | number
+    | null,
+): string {
+  if (value === null) {
+    return "—";
+  }
+
+  if (value === 0) {
+    return "No new data";
+  }
+
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      maximumFractionDigits: 1,
+    },
+  ).format(
+    value,
+  )}/sec`;
+}
+
+
+function latestRunForStage(
+  runs: PipelineRun[],
+  stage: string,
+): PipelineRun | null {
+  const matching = runs
+    .filter(
+      (run) =>
+        run.stage === stage,
+    )
+    .sort(
+      (
+        first,
+        second,
+      ) =>
+        new Date(
+          second.started_at,
+        ).getTime()
+        - new Date(
+          first.started_at,
+        ).getTime(),
+    );
+
+  return matching[0]
+    ?? null;
+}
+
+
+function stageHistory(
+  runs: PipelineRun[],
+  stage: string,
+): PipelineRun[] {
+  return runs.filter(
+    (run) =>
+      run.stage === stage,
+  );
+}
+
+
+function EmptyStageCard({
+  stage,
+}: {
+  stage: string;
+}) {
+  return (
+    <article className="rounded-xl border border-white/[0.055] bg-black/20 p-4">
+      <div className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-white/20" />
+
+        <span className="text-[8px] font-semibold uppercase tracking-[0.14em] text-white/25">
+          No run data
+        </span>
+      </div>
+
+      <p className="mt-4 text-base font-medium tracking-[-0.025em] text-white/70">
+        {stageTitle(
+          stage,
+        )}
+      </p>
+
+      <p className="mt-1 text-[8px] leading-4 text-white/25">
+        {stageDescription(
+          stage,
+        )}
+      </p>
+
+      <div className="mt-5 flex min-h-[105px] items-center justify-center rounded-lg border border-dashed border-white/[0.055] bg-black/15">
+        <p className="text-center text-[8px] leading-4 text-white/20">
+          No instrumented execution
+          <br />
+          recorded yet
+        </p>
+      </div>
+    </article>
+  );
+}
+
+
 function RunCard({
   run,
+  history,
 }: {
   run: PipelineRun;
+  history: PipelineRun[];
 }) {
   const style =
     statusStyle(
       run.status,
     );
+
+  const failures =
+    history.filter(
+      (item) =>
+        item.status
+        === "FAILED",
+    ).length;
+
+  const successes =
+    history.filter(
+      (item) =>
+        item.status
+        === "SUCCEEDED",
+    ).length;
 
   return (
     <article className="rounded-xl border border-white/[0.055] bg-black/20 p-4">
@@ -271,13 +373,47 @@ function RunCard({
 
         <div className="rounded-lg border border-white/[0.045] bg-black/20 p-3">
           <p className="text-[7px] uppercase tracking-[0.12em] text-white/20">
-            Exit code
+            Records
           </p>
 
           <p
             className={`mt-2 text-sm font-medium ${
-              run.exit_code === 0
+              run.records_processed
+                && run.records_processed
+                > 0
                 ? "text-emerald-200/70"
+                : "text-white/45"
+            }`}
+          >
+            {formatRecords(
+              run.records_processed,
+            )}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-white/[0.045] bg-black/20 p-3">
+          <p className="text-[7px] uppercase tracking-[0.12em] text-white/20">
+            Throughput
+          </p>
+
+          <p className="mt-2 text-xs font-medium text-white/55">
+            {formatThroughput(
+              run.throughput_records_per_second,
+            )}
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-white/[0.045] bg-black/20 p-3">
+          <p className="text-[7px] uppercase tracking-[0.12em] text-white/20">
+            Exit code
+          </p>
+
+          <p
+            className={`mt-2 text-xs font-medium ${
+              run.exit_code === 0
+                ? "text-emerald-200/65"
                 : run.exit_code === null
                   ? "text-white/40"
                   : "text-rose-300/80"
@@ -292,7 +428,7 @@ function RunCard({
       <div className="mt-5 space-y-3 border-t border-white/[0.045] pt-4">
         <div className="flex items-center justify-between gap-4">
           <span className="text-[7px] uppercase tracking-[0.12em] text-white/20">
-            Started
+            Latest execution
           </span>
 
           <span className="text-right text-[8px] text-white/40">
@@ -304,46 +440,39 @@ function RunCard({
 
         <div className="flex items-center justify-between gap-4">
           <span className="text-[7px] uppercase tracking-[0.12em] text-white/20">
-            Completed
+            Retained history
           </span>
 
           <span className="text-right text-[8px] text-white/40">
-            {run.status ===
-            "STARTED"
-              ? "In progress"
-              : formatTime(
-                  run.finished_at,
-                )}
+            {history.length}
+            {" "}
+            runs
           </span>
         </div>
 
-        {run.records_processed !==
-          null && (
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-[7px] uppercase tracking-[0.12em] text-white/20">
-              Records processed
-            </span>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-[7px] uppercase tracking-[0.12em] text-white/20">
+            Successful
+          </span>
 
-            <span className="text-right text-[8px] text-white/40">
-              {new Intl.NumberFormat(
-                "en-US",
-              ).format(
-                run.records_processed,
-              )}
-            </span>
-          </div>
-        )}
+          <span className="text-right text-[8px] text-emerald-200/50">
+            {successes}
+          </span>
+        </div>
 
         <div className="flex items-center justify-between gap-4">
           <span className="text-[7px] uppercase tracking-[0.12em] text-white/20">
-            Run ID
+            Failed
           </span>
 
-          <span className="font-mono text-[7px] text-white/25">
-            {run.run_id.slice(
-              0,
-              12,
-            )}
+          <span
+            className={`text-right text-[8px] ${
+              failures > 0
+                ? "text-rose-300/70"
+                : "text-white/40"
+            }`}
+          >
+            {failures}
           </span>
         </div>
       </div>
@@ -360,11 +489,21 @@ export default async function PipelineRunsPanel() {
   try {
     summary =
       await getPipelineRuns(
-        12,
+        100,
       );
   } catch {
     summary = null;
   }
+
+  const operationalRuns =
+    summary?.runs.filter(
+      (run) =>
+        PIPELINE_STAGES.some(
+          (stage) =>
+            stage === run.stage,
+        ),
+    )
+    ?? [];
 
   return (
     <section
@@ -382,37 +521,25 @@ export default async function PipelineRunsPanel() {
           </div>
 
           <h2 className="mt-2 text-xl font-medium tracking-[-0.035em] text-white">
-            Pipeline run history
+            Latest execution by stage
           </h2>
 
           <p className="mt-1 max-w-[720px] text-[10px] leading-5 text-white/30">
-            Actual execution state,
-            duration, completion
-            status, and run identity
-            across instrumented
-            GridPulse pipelines.
+            One operational card per
+            pipeline stage. Historical
+            executions remain retained
+            for SLA, failure, and
+            recovery intelligence.
           </p>
         </div>
 
         {summary && (
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-emerald-300/10 bg-emerald-300/[0.025] px-3 py-2 text-[8px] text-emerald-200/70">
-              {
-                summary.successful_runs
-              } succeeded
-            </span>
-
-            <span className="rounded-full border border-sky-300/10 bg-sky-300/[0.025] px-3 py-2 text-[8px] text-sky-200/70">
-              {
-                summary.running_runs
-              } running
-            </span>
-
-            <span className="rounded-full border border-rose-400/10 bg-rose-400/[0.025] px-3 py-2 text-[8px] text-rose-300/70">
-              {
-                summary.failed_runs
-              } failed
-            </span>
+          <div className="rounded-full border border-white/[0.06] bg-white/[0.015] px-3 py-2 text-[8px] text-white/30">
+            {
+              operationalRuns.length
+            }
+            {" "}
+            operational runs retained
           </div>
         )}
       </div>
@@ -422,47 +549,52 @@ export default async function PipelineRunsPanel() {
           Pipeline telemetry is
           currently unavailable.
         </div>
-      ) : summary.runs.length ===
-        0 ? (
-        <div className="flex min-h-[180px] items-center justify-center p-6 text-center">
-          <div>
-            <p className="text-sm text-white/50">
-              No instrumented
-              pipeline runs yet.
-            </p>
-
-            <p className="mt-2 text-[9px] text-white/25">
-              Execution telemetry
-              will appear after an
-              instrumented GridPulse
-              pipeline runs.
-            </p>
-          </div>
-        </div>
       ) : (
-        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3 lg:p-6">
-          {summary.runs.map(
-            (run) => (
-              <RunCard
-                key={
-                  run.run_id
-                }
-                run={run}
-              />
-            ),
+        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4 lg:p-6">
+          {PIPELINE_STAGES.map(
+            (stage) => {
+              const latest =
+                latestRunForStage(
+                  operationalRuns,
+                  stage,
+                );
+
+              const history =
+                stageHistory(
+                  operationalRuns,
+                  stage,
+                );
+
+              if (!latest) {
+                return (
+                  <EmptyStageCard
+                    key={stage}
+                    stage={stage}
+                  />
+                );
+              }
+
+              return (
+                <RunCard
+                  key={stage}
+                  run={latest}
+                  history={history}
+                />
+              );
+            },
           )}
         </div>
       )}
 
       <div className="flex flex-col justify-between gap-2 border-t border-white/[0.05] px-5 py-3 text-[7px] uppercase tracking-[0.11em] text-white/20 md:flex-row lg:px-6">
         <span>
-          Verified execution
-          telemetry
+          Latest execution shown ·
+          full history retained
         </span>
 
         <span>
-          Run state · duration ·
-          completion · identity
+          Smoke-test runs hidden from
+          operational view
         </span>
       </div>
     </section>
