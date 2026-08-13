@@ -5,6 +5,8 @@ with hourly as (
     select *
     from {{ ref('mart_grid_hourly') }}
 
+    where entity_type = 'balancing_authority'
+
 ),
 
 aggregated as (

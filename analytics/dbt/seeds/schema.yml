@@ -1,0 +1,29 @@
+version: 2
+
+seeds:
+
+  - name: eia_respondent_types
+    description: >
+      Explicit classification of EIA aggregate respondent
+      codes used by GridPulse. Respondents not present in
+      this seed are treated as balancing authorities.
+
+    columns:
+
+      - name: respondent
+        data_tests:
+          - not_null
+          - unique
+
+      - name: entity_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - region
+                  - national
+
+      - name: entity_name
+        data_tests:
+          - not_null

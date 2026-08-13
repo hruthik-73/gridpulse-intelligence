@@ -52,6 +52,7 @@ def create_schema(
             period TIMESTAMP,
             respondent VARCHAR,
             respondent_name VARCHAR,
+            entity_type VARCHAR,
             demand_mwh DOUBLE,
             demand_forecast_mwh DOUBLE,
             demand_forecast_error_pct DOUBLE,
@@ -82,6 +83,7 @@ def insert_history(
             datetime,
             str,
             str,
+            str,
             float,
             float,
             float,
@@ -106,6 +108,7 @@ def insert_history(
                 ),
                 respondent,
                 respondent_name,
+                "balancing_authority",
                 demand,
                 forecast,
                 forecast_error_pct,
@@ -121,6 +124,7 @@ def insert_history(
             ),
             respondent,
             respondent_name,
+            "balancing_authority",
             1000.0,
             900.0,
             latest_forecast_error_pct,
@@ -131,7 +135,7 @@ def insert_history(
     connection.executemany(
         """
         INSERT INTO analytics.mart_grid_hourly
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )

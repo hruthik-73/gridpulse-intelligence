@@ -1,12 +1,17 @@
 version: 2
 
 models:
+
   - name: mart_grid_hourly
     description: >
-      Analytics-ready hourly electricity metrics by EIA
-      balancing authority.
+      Analytics-ready hourly EIA electricity metrics by
+      respondent. The mart preserves balancing authorities,
+      EIA regional aggregates, and the U.S. Lower 48
+      national aggregate while explicitly identifying each
+      respondent's analytical entity type.
 
     columns:
+
       - name: grid_hour_key
         data_tests:
           - not_null
@@ -20,16 +25,32 @@ models:
         data_tests:
           - not_null
 
+      - name: entity_type
+        description: >
+          Analytical scope of the EIA respondent.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - balancing_authority
+                  - region
+                  - national
+
       - name: contains_replay
         data_tests:
           - not_null
 
+
   - name: mart_balancing_authority_performance
     description: >
-      Balancing-authority performance metrics including
-      demand, forecast accuracy, and generation coverage.
+      Balancing-authority-only performance metrics including
+      demand, forecast accuracy, generation coverage, and
+      ranking statistics. Regional and national aggregate
+      respondents are intentionally excluded.
 
     columns:
+
       - name: respondent
         data_tests:
           - not_null
@@ -43,11 +64,13 @@ models:
         data_tests:
           - not_null
 
+
   - name: mart_ev_city_rankings
     description: >
       City-level EV charging infrastructure rankings.
 
     columns:
+
       - name: city_state_key
         data_tests:
           - not_null
@@ -65,11 +88,13 @@ models:
         data_tests:
           - not_null
 
+
   - name: mart_weather_forecast
     description: >
       Dashboard-ready hourly weather forecast mart.
 
     columns:
+
       - name: weather_forecast_key
         data_tests:
           - not_null

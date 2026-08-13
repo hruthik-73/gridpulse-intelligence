@@ -1,0 +1,15 @@
+respondent,entity_type,entity_name
+US48,national,United States Lower 48
+CAL,region,California
+CAR,region,Carolinas
+CENT,region,Central
+FLA,region,Florida
+MIDA,region,Mid-Atlantic
+MIDW,region,Midwest
+NE,region,New England
+NW,region,Northwest
+NY,region,New York
+SE,region,Southeast
+SW,region,Southwest
+TEN,region,Tennessee
+TEX,region,Texas

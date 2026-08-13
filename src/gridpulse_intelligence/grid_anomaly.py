@@ -109,7 +109,8 @@ def load_grid_anomalies(
                 FROM analytics.mart_grid_hourly
 
                 WHERE
-                    demand_mwh IS NOT NULL
+                    entity_type = 'balancing_authority'
+                    AND demand_mwh IS NOT NULL
                     AND demand_mwh > 0
                     AND demand_forecast_mwh IS NOT NULL
                     AND demand_forecast_mwh > 0
