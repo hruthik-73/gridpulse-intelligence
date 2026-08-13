@@ -3,6 +3,7 @@ import DataFreshnessPanel from "@/components/DataFreshnessPanel";
 import GridCore from "@/components/GridCore";
 import GridRiskPanel from "@/components/GridRiskPanel";
 import NationalCommandCenter from "@/components/NationalCommandCenter";
+import OperationalIncidentPanel from "@/components/OperationalIncidentPanel";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
 import RegionalGridExperience from "@/components/RegionalGridExperience";
 import RegionalGridPanel from "@/components/RegionalGridPanel";
@@ -449,6 +450,9 @@ export default async function Home() {
         />
 
         <DataFreshnessPanel />
+
+        <OperationalIncidentPanel />
+
 
         <div
           id="grid-map"

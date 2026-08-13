@@ -313,3 +313,38 @@ class SourceFreshnessResponse(BaseModel):
 
     fresh_within_hours: float
     stale_after_hours: float
+
+
+class OperationalIncidentResponse(BaseModel):
+    """One actionable GridPulse operational incident."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    incident_id: str
+
+    severity: str
+    category: str
+
+    title: str
+    source: str
+
+    current_state: str
+
+    evidence: str
+    recommended_action: str
+
+
+class OperationalIncidentSummaryResponse(BaseModel):
+    """Current GridPulse operational incident summary."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    status: str
+    active_incidents: int
+    highest_severity: str
+
+    incidents: list[OperationalIncidentResponse]

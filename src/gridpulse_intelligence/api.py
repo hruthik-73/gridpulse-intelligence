@@ -19,6 +19,8 @@ from gridpulse_intelligence.api_models import (
     ComponentHealthResponse,
     EVCityRanking,
     GridAnomalyResponse,
+    OperationalIncidentResponse,
+    OperationalIncidentSummaryResponse,
     PlatformHealthResponse,
     PlatformStatus,
     RegionalGridHistoryResponse,
@@ -32,6 +34,11 @@ from gridpulse_intelligence.api_repository import (
     GridPulseRepositoryError,
 )
 from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
+from gridpulse_intelligence.incident_intelligence import (
+    ComponentState,
+    build_operational_incidents,
+    highest_operational_severity,
+)
 from gridpulse_intelligence.platform_health import PlatformHealthService
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
@@ -318,6 +325,70 @@ def platform_health(
         kafka_consumer=response_component(
             "kafka_consumer",
         ),
+    )
+
+
+@app.get(
+    "/api/v1/platform/incidents",
+    response_model=OperationalIncidentSummaryResponse,
+    tags=[
+        "platform",
+    ],
+)
+def operational_incidents(
+    health_service: HealthServiceDependency,
+) -> OperationalIncidentSummaryResponse:
+    """Return prioritized operational incidents."""
+
+    try:
+        freshness = load_source_freshness(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            )
+        )
+
+        health = health_service.snapshot()
+
+        components = [
+            ComponentState(
+                name=name,
+                status=component.status,
+                detail=component.detail,
+                latency_ms=component.latency_ms,
+            )
+            for name, component in health.items()
+        ]
+
+        incidents = build_operational_incidents(
+            freshness=freshness,
+            components=components,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Operational incident intelligence is currently unavailable."),
+        ) from exc
+
+    highest_severity = highest_operational_severity(incidents)
+
+    return OperationalIncidentSummaryResponse(
+        status=("healthy" if not incidents else "attention"),
+        active_incidents=len(incidents),
+        highest_severity=highest_severity,
+        incidents=[
+            OperationalIncidentResponse(
+                incident_id=row.incident_id,
+                severity=row.severity,
+                category=row.category,
+                title=row.title,
+                source=row.source,
+                current_state=row.current_state,
+                evidence=row.evidence,
+                recommended_action=row.recommended_action,
+            )
+            for row in incidents
+        ],
     )
 
 

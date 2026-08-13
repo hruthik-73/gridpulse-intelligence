@@ -352,6 +352,43 @@ export interface SourceFreshness {
 }
 
 
+
+export interface OperationalIncident {
+  incident_id: string;
+
+  severity:
+    | "NORMAL"
+    | "ELEVATED"
+    | "HIGH"
+    | "CRITICAL";
+
+  category: string;
+
+  title: string;
+  source: string;
+
+  current_state: string;
+
+  evidence: string;
+  recommended_action: string;
+}
+
+
+export interface OperationalIncidentSummary {
+  status: string;
+
+  active_incidents: number;
+
+  highest_severity:
+    | "NORMAL"
+    | "ELEVATED"
+    | "HIGH"
+    | "CRITICAL";
+
+  incidents: OperationalIncident[];
+}
+
+
 async function fetchJSON<T>(
   path: string,
 ): Promise<T> {
@@ -462,6 +499,14 @@ export async function getWeather(
   );
 }
 
+
+
+
+export async function getOperationalIncidents(): Promise<OperationalIncidentSummary> {
+  return fetchJSON<OperationalIncidentSummary>(
+    "/api/v1/platform/incidents",
+  );
+}
 
 
 export async function getSourceFreshness(): Promise<SourceFreshness[]> {
