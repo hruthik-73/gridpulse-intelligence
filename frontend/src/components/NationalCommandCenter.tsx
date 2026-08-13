@@ -372,7 +372,7 @@ export default function NationalCommandCenter({
               topRegion?.severity,
             )
           }
-          targetId="regional-grid"
+          targetId="grid-map"
         />
 
         <IntelligenceCard
