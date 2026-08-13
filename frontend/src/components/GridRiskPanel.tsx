@@ -23,8 +23,7 @@ function severityClasses(
         dot: "bg-rose-400 shadow-[0_0_16px_rgba(251,113,133,0.8)]",
         text: "text-rose-300",
         border: "border-rose-400/20",
-        background:
-          "bg-rose-400/[0.045]",
+        background: "bg-rose-400/[0.045]",
       };
 
     case "HIGH":
@@ -32,8 +31,7 @@ function severityClasses(
         dot: "bg-orange-300 shadow-[0_0_16px_rgba(253,186,116,0.7)]",
         text: "text-orange-200",
         border: "border-orange-300/20",
-        background:
-          "bg-orange-300/[0.04]",
+        background: "bg-orange-300/[0.04]",
       };
 
     case "ELEVATED":
@@ -41,8 +39,7 @@ function severityClasses(
         dot: "bg-amber-300 shadow-[0_0_14px_rgba(252,211,77,0.65)]",
         text: "text-amber-200",
         border: "border-amber-300/15",
-        background:
-          "bg-amber-300/[0.035]",
+        background: "bg-amber-300/[0.035]",
       };
 
     case "NORMAL":
@@ -51,8 +48,7 @@ function severityClasses(
         dot: "bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.65)]",
         text: "text-emerald-200",
         border: "border-emerald-300/15",
-        background:
-          "bg-emerald-300/[0.025]",
+        background: "bg-emerald-300/[0.025]",
       };
   }
 }
@@ -68,8 +64,7 @@ function formatNumber(
   return new Intl.NumberFormat(
     "en-US",
     {
-      maximumFractionDigits:
-        digits,
+      maximumFractionDigits: digits,
     },
   ).format(value);
 }
@@ -201,9 +196,7 @@ function RiskRow({
         </div>
 
         <p className="mt-1 truncate text-[9px] text-white/30">
-          {
-            anomaly.respondent_name
-          }
+          {anomaly.respondent_name}
         </p>
       </div>
 
@@ -254,12 +247,13 @@ export default function GridRiskPanel({
     return (
       <section className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.015] p-6">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200">
-          Live Grid Risk
+          Historical Grid Risk
         </p>
 
         <p className="mt-3 text-sm text-white/35">
-          Grid risk intelligence
-          is currently unavailable.
+          Historical anomaly
+          intelligence is currently
+          unavailable.
         </p>
       </section>
     );
@@ -302,30 +296,31 @@ export default function GridRiskPanel({
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-emerald-200">
-                Live Grid Risk
+                Historical Grid Risk
               </p>
 
               <h2 className="mt-2 text-2xl font-medium tracking-[-0.035em] text-white">
-                Peer-relative grid
-                intelligence
+                Authority-level
+                anomaly intelligence
               </h2>
 
-              <p className="mt-2 max-w-[640px] text-xs leading-5 text-white/35">
-                Balancing
-                authorities ranked
-                using demand forecast
-                deviation and
+              <p className="mt-2 max-w-[680px] text-xs leading-5 text-white/35">
+                Each balancing
+                authority&apos;s latest
+                grid behavior is
+                compared with its own
+                historical baseline
+                using robust forecast
+                error and
                 generation-demand
-                imbalance relative to
-                the current GridPulse
-                observation set.
+                deviation signals.
               </p>
             </div>
 
             <div className="flex items-center gap-2 rounded-full border border-emerald-300/10 bg-emerald-300/[0.03] px-3 py-2 text-[8px] uppercase tracking-[0.16em] text-emerald-200">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.7)]" />
 
-              Intelligence active
+              Historical baseline active
             </div>
           </div>
 
@@ -384,7 +379,7 @@ export default function GridRiskPanel({
 
           <div className="min-w-0">
             <p className="text-[8px] uppercase tracking-[0.15em] text-white/25">
-              Highest current signal
+              Strongest historical deviation
             </p>
 
             <p className="mt-2 text-lg font-medium text-white">
@@ -392,9 +387,7 @@ export default function GridRiskPanel({
             </p>
 
             <p className="mt-1 max-w-[190px] truncate text-[9px] text-white/30">
-              {
-                topRisk.respondent_name
-              }
+              {topRisk.respondent_name}
             </p>
 
             <div className="mt-4 space-y-2 text-[9px]">
@@ -430,12 +423,14 @@ export default function GridRiskPanel({
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-[8px] uppercase tracking-[0.17em] text-white/25">
-              Risk ranking
+              Historical anomaly ranking
             </p>
 
             <p className="mt-1 text-xs text-white/45">
-              Highest scoring
-              balancing authorities
+              Latest authority
+              observations ranked
+              against their own
+              historical behavior
             </p>
           </div>
 
@@ -465,13 +460,15 @@ export default function GridRiskPanel({
       </div>
 
       <div className="border-t border-white/[0.05] px-5 py-3 text-[8px] leading-4 text-white/20 lg:px-6">
-        Risk scores are
-        peer-relative analytical
-        signals derived from the
-        current GridPulse dataset.
-        They do not represent outage
-        declarations or official
-        reliability alerts.
+        Historical risk scores compare
+        each balancing authority with
+        its own prior GridPulse
+        observations using robust
+        statistical baselines. Scores
+        are analytical signals and do
+        not represent official outage
+        declarations or reliability
+        alerts.
       </div>
     </section>
   );
