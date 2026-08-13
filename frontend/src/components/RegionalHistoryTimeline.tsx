@@ -112,12 +112,18 @@ export default function RegionalHistoryTimeline({
     false,
   );
 
+  const regionCode =
+    region?.region
+    ?? null;
+
   useEffect(
     () => {
-      if (!region) {
-        setHistory([]);
+      if (!regionCode) {
         return;
       }
+
+      const activeRegionCode =
+        regionCode;
 
       let cancelled =
         false;
@@ -134,7 +140,7 @@ export default function RegionalHistoryTimeline({
         try {
           const data =
             await getRegionalGridHistory(
-              region.region,
+              activeRegionCode,
               168,
             );
 
@@ -166,7 +172,7 @@ export default function RegionalHistoryTimeline({
       };
     },
     [
-      region,
+      regionCode,
     ],
   );
 

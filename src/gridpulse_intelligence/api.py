@@ -23,6 +23,7 @@ from gridpulse_intelligence.api_models import (
     PlatformStatus,
     RegionalGridHistoryResponse,
     RegionalGridResponse,
+    RegionalGridTimelineResponse,
     WeatherForecast,
 )
 from gridpulse_intelligence.api_repository import (
@@ -33,6 +34,7 @@ from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
 from gridpulse_intelligence.platform_health import PlatformHealthService
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
+from gridpulse_intelligence.regional_timeline import load_regional_timeline
 
 DEFAULT_DATABASE_PATH = "data/warehouse/gridpulse.duckdb"
 
@@ -475,6 +477,64 @@ def regional_grid_history(
             demand_change_pct=row.demand_change_pct,
             forecast_error_pct=row.forecast_error_pct,
             generation_gap_pct=row.generation_gap_pct,
+            contains_replay=row.contains_replay,
+        )
+        for row in rows
+    ]
+
+
+@app.get(
+    "/api/v1/grid/regions/timeline",
+    response_model=list[RegionalGridTimelineResponse],
+    tags=[
+        "grid",
+    ],
+)
+def regional_grid_timeline(
+    hours: Annotated[
+        int,
+        Query(
+            ge=24,
+            le=720,
+        ),
+    ] = 168,
+) -> list[RegionalGridTimelineResponse]:
+    """Return historically scored regional pressure frames."""
+
+    try:
+        rows = load_regional_timeline(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            ),
+            hours=hours,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Regional pressure timeline is currently unavailable."),
+        ) from exc
+
+    return [
+        RegionalGridTimelineResponse(
+            period=row.period,
+            region=row.region,
+            region_name=row.region_name,
+            demand_mwh=row.demand_mwh,
+            demand_forecast_mwh=row.demand_forecast_mwh,
+            net_generation_mwh=row.net_generation_mwh,
+            total_interchange_mwh=row.total_interchange_mwh,
+            demand_baseline_mwh=row.demand_baseline_mwh,
+            demand_vs_baseline_pct=row.demand_vs_baseline_pct,
+            demand_change_pct=row.demand_change_pct,
+            forecast_error_pct=row.forecast_error_pct,
+            generation_gap_pct=row.generation_gap_pct,
+            history_points=row.history_points,
+            demand_deviation_score=row.demand_deviation_score,
+            forecast_deviation_score=row.forecast_deviation_score,
+            generation_deviation_score=row.generation_deviation_score,
+            pressure_score=row.pressure_score,
+            severity=row.severity,
             contains_replay=row.contains_replay,
         )
         for row in rows

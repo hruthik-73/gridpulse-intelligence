@@ -271,6 +271,57 @@ export interface RegionalGridHistoryPoint {
 
 
 
+
+export interface RegionalGridTimelinePoint {
+  period: string;
+
+  region: string;
+  region_name: string;
+
+  demand_mwh: number;
+
+  demand_forecast_mwh:
+    | number
+    | null;
+
+  net_generation_mwh:
+    | number
+    | null;
+
+  total_interchange_mwh:
+    | number
+    | null;
+
+  demand_baseline_mwh: number;
+
+  demand_vs_baseline_pct: number;
+
+  demand_change_pct:
+    | number
+    | null;
+
+  forecast_error_pct:
+    | number
+    | null;
+
+  generation_gap_pct:
+    | number
+    | null;
+
+  history_points: number;
+
+  demand_deviation_score: number;
+  forecast_deviation_score: number;
+  generation_deviation_score: number;
+
+  pressure_score: number;
+
+  severity: GridRiskSeverity;
+
+  contains_replay: boolean;
+}
+
+
 async function fetchJSON<T>(
   path: string,
 ): Promise<T> {
@@ -336,6 +387,16 @@ export async function getRegionalGridHistory(
   );
 }
 
+
+
+
+export async function getRegionalGridTimeline(
+  hours = 168,
+): Promise<RegionalGridTimelinePoint[]> {
+  return fetchJSON<RegionalGridTimelinePoint[]>(
+    `/api/v1/grid/regions/timeline?hours=${hours}`,
+  );
+}
 
 
 export async function getEVCities(

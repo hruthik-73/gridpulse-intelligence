@@ -17,7 +17,6 @@ import {
 } from "topojson-client";
 
 import type {
-  Feature,
   FeatureCollection,
   GeoJsonProperties,
   Geometry,
@@ -549,14 +548,23 @@ export default function RegionalGridMap({
             GeoJsonProperties
           >;
 
-        const nation =
+        const nationCollection =
           feature(
             topology,
             nationObject,
-          ) as Feature<
+          ) as FeatureCollection<
             Geometry,
             GeoJsonProperties
           >;
+
+        const nation =
+          nationCollection.features[
+            0
+          ];
+
+        if (!nation) {
+          return null;
+        }
 
         const borders =
           mesh(
