@@ -1,67 +1,83 @@
 """FastAPI serving layer for GridPulse Intelligence."""
 
+from __future__ import annotations
+
+import time
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from pathlib import Path
-from time import perf_counter
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import (
-    Depends,
-    FastAPI,
-    HTTPException,
-    Query,
-    Request,
-    Response,
-)
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import make_asgi_app
+from prometheus_client import Counter, Histogram, make_asgi_app
+from starlette.responses import Response
 
 from gridpulse_intelligence.api_models import (
     APIHealth,
     BalancingAuthorityPerformance,
     ComponentHealthResponse,
     EVCityRanking,
+    GridAnomalyResponse,
     PlatformHealthResponse,
     PlatformStatus,
     WeatherForecast,
 )
 from gridpulse_intelligence.api_repository import (
-    DEFAULT_DATABASE_PATH,
     GridPulseRepository,
     GridPulseRepositoryError,
 )
-from gridpulse_intelligence.metrics import get_metrics
-from gridpulse_intelligence.platform_health import (
-    PlatformHealthService,
+from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
+from gridpulse_intelligence.platform_health import PlatformHealthService
+
+DEFAULT_DATABASE_PATH = "data/warehouse/gridpulse.duckdb"
+
+
+API_REQUESTS = Counter(
+    "gridpulse_api_requests_total",
+    "Total GridPulse API HTTP requests.",
+    (
+        "method",
+        "route",
+        "status_code",
+    ),
 )
 
-FRONTEND_ORIGINS = [
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
+API_REQUEST_DURATION = Histogram(
+    "gridpulse_api_request_duration_seconds",
+    "GridPulse API request duration in seconds.",
+    (
+        "method",
+        "route",
+    ),
+)
+
 
 app = FastAPI(
     title="GridPulse Intelligence API",
     version="0.1.0",
     description=(
-        "Serving API for electricity, weather, EV infrastructure, and GridPulse platform analytics."
+        "Serving layer for GridPulse electricity, weather, "
+        "EV infrastructure, platform health, and grid-risk intelligence."
     ),
 )
 
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=FRONTEND_ORIGINS,
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
     allow_methods=[
-        "GET",
+        "*",
     ],
     allow_headers=[
         "*",
     ],
 )
 
-metrics = get_metrics()
 
 metrics_app = make_asgi_app()
 
@@ -74,9 +90,11 @@ app.mount(
 def _route_label(
     request: Request,
 ) -> str:
-    """Return a stable low-cardinality route label."""
+    """Return a low-cardinality route label for API metrics."""
 
-    route: Any = request.scope.get("route")
+    route = request.scope.get(
+        "route",
+    )
 
     path = getattr(
         route,
@@ -84,19 +102,18 @@ def _route_label(
         None,
     )
 
-    if (
-        isinstance(
-            path,
-            str,
-        )
-        and path
+    if isinstance(
+        path,
+        str,
     ):
         return path
 
     return request.url.path
 
 
-@app.middleware("http")
+@app.middleware(
+    "http",
+)
 async def observe_api_request(
     request: Request,
     call_next: Callable[
@@ -104,32 +121,56 @@ async def observe_api_request(
         Awaitable[Response],
     ],
 ) -> Response:
-    """Record request count, status, and duration."""
+    """Record API request count and request duration."""
 
-    started_at = perf_counter()
+    started = time.perf_counter()
 
     try:
-        response = await call_next(request)
+        response = await call_next(
+            request,
+        )
 
     except Exception:
-        duration = perf_counter() - started_at
+        duration = time.perf_counter() - started
 
-        metrics.record_api_request(
+        API_REQUESTS.labels(
             method=request.method,
-            route=_route_label(request),
-            status_code=500,
-            duration_seconds=duration,
+            route=_route_label(
+                request,
+            ),
+            status_code="500",
+        ).inc()
+
+        API_REQUEST_DURATION.labels(
+            method=request.method,
+            route=_route_label(
+                request,
+            ),
+        ).observe(
+            duration,
         )
 
         raise
 
-    duration = perf_counter() - started_at
+    duration = time.perf_counter() - started
 
-    metrics.record_api_request(
+    API_REQUESTS.labels(
         method=request.method,
-        route=_route_label(request),
-        status_code=response.status_code,
-        duration_seconds=duration,
+        route=_route_label(
+            request,
+        ),
+        status_code=str(
+            response.status_code,
+        ),
+    ).inc()
+
+    API_REQUEST_DURATION.labels(
+        method=request.method,
+        route=_route_label(
+            request,
+        ),
+    ).observe(
+        duration,
     )
 
     return response
@@ -139,12 +180,18 @@ async def observe_api_request(
 def get_repository() -> GridPulseRepository:
     """Return the process-wide API repository."""
 
-    return GridPulseRepository(database_path=Path(DEFAULT_DATABASE_PATH))
+    return GridPulseRepository(
+        database_path=Path(
+            DEFAULT_DATABASE_PATH,
+        )
+    )
 
 
 RepositoryDependency = Annotated[
     GridPulseRepository,
-    Depends(get_repository),
+    Depends(
+        get_repository,
+    ),
 ]
 
 
@@ -152,12 +199,16 @@ RepositoryDependency = Annotated[
 def get_platform_health_service() -> PlatformHealthService:
     """Return the process-wide platform health service."""
 
-    return PlatformHealthService(repository=get_repository())
+    return PlatformHealthService(
+        repository=get_repository(),
+    )
 
 
 HealthServiceDependency = Annotated[
     PlatformHealthService,
-    Depends(get_platform_health_service),
+    Depends(
+        get_platform_health_service,
+    ),
 ]
 
 
@@ -195,7 +246,9 @@ def platform_status(
     except GridPulseRepositoryError as exc:
         raise HTTPException(
             status_code=503,
-            detail=str(exc),
+            detail=str(
+                exc,
+            ),
         ) from exc
 
     return PlatformStatus(
@@ -243,11 +296,70 @@ def platform_health(
 
     return PlatformHealthResponse(
         status=overall_status,
-        warehouse=response_component("warehouse"),
-        kafka=response_component("kafka"),
-        prometheus=response_component("prometheus"),
-        kafka_consumer=response_component("kafka_consumer"),
+        warehouse=response_component(
+            "warehouse",
+        ),
+        kafka=response_component(
+            "kafka",
+        ),
+        prometheus=response_component(
+            "prometheus",
+        ),
+        kafka_consumer=response_component(
+            "kafka_consumer",
+        ),
     )
+
+
+@app.get(
+    "/api/v1/grid/anomalies",
+    response_model=list[GridAnomalyResponse],
+    tags=[
+        "grid",
+    ],
+)
+def grid_anomalies(
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=100,
+        ),
+    ] = 20,
+) -> list[GridAnomalyResponse]:
+    """Return peer-relative balancing-authority grid risk scores."""
+
+    try:
+        rows = load_grid_anomalies(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            ),
+            limit=limit,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Grid anomaly intelligence is currently unavailable."),
+        ) from exc
+
+    return [
+        GridAnomalyResponse(
+            period=row.period,
+            respondent=row.respondent,
+            respondent_name=row.respondent_name,
+            demand_mwh=row.demand_mwh,
+            demand_forecast_mwh=row.demand_forecast_mwh,
+            forecast_error_pct=row.forecast_error_pct,
+            generation_gap_pct=row.generation_gap_pct,
+            risk_score=round(
+                row.risk_score,
+                1,
+            ),
+            severity=row.severity,
+        )
+        for row in rows
+    ]
 
 
 @app.get(
@@ -270,12 +382,16 @@ def grid_authorities(
     """Return balancing-authority performance analytics."""
 
     try:
-        rows = repository.balancing_authorities(limit=limit)
+        rows = repository.balancing_authorities(
+            limit=limit,
+        )
 
     except GridPulseRepositoryError as exc:
         raise HTTPException(
             status_code=503,
-            detail=str(exc),
+            detail=str(
+                exc,
+            ),
         ) from exc
 
     return [BalancingAuthorityPerformance.model_validate(row) for row in rows]
@@ -316,7 +432,9 @@ def ev_cities(
     except GridPulseRepositoryError as exc:
         raise HTTPException(
             status_code=503,
-            detail=str(exc),
+            detail=str(
+                exc,
+            ),
         ) from exc
 
     return [EVCityRanking.model_validate(row) for row in rows]
@@ -342,12 +460,16 @@ def weather(
     """Return hourly weather forecasts."""
 
     try:
-        rows = repository.weather_forecasts(limit=limit)
+        rows = repository.weather_forecasts(
+            limit=limit,
+        )
 
     except GridPulseRepositoryError as exc:
         raise HTTPException(
             status_code=503,
-            detail=str(exc),
+            detail=str(
+                exc,
+            ),
         ) from exc
 
     return [WeatherForecast.model_validate(row) for row in rows]

@@ -161,3 +161,25 @@ class PlatformHealthResponse(BaseModel):
     kafka: ComponentHealthResponse
     prometheus: ComponentHealthResponse
     kafka_consumer: ComponentHealthResponse
+
+
+class GridAnomalyResponse(BaseModel):
+    """Peer-relative GridPulse grid risk observation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    period: str
+
+    respondent: str
+    respondent_name: str
+
+    demand_mwh: float | None
+    demand_forecast_mwh: float | None
+
+    forecast_error_pct: float | None
+    generation_gap_pct: float | None
+
+    risk_score: float
+    severity: str

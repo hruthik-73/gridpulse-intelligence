@@ -1,9 +1,11 @@
 import AnalyticsExplorer from "@/components/AnalyticsExplorer";
 import GridCore from "@/components/GridCore";
+import GridRiskPanel from "@/components/GridRiskPanel";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
 
 import {
   getEVCities,
+  getGridAnomalies,
   getGridAuthorities,
   getPlatformHealth,
   getPlatformStatus,
@@ -12,23 +14,30 @@ import {
 
 import type {
   EVCity,
+  GridAnomaly,
   GridAuthority,
   PlatformHealth,
   PlatformStatus,
   WeatherForecast,
 } from "@/lib/api";
 
+
 export const dynamic =
   "force-dynamic";
+
 
 interface DashboardData {
   status: PlatformStatus | null;
   health: PlatformHealth | null;
+
   authorities: GridAuthority[];
+  anomalies: GridAnomaly[];
   evCities: EVCity[];
   weather: WeatherForecast[];
+
   apiAvailable: boolean;
 }
+
 
 async function getDashboardData(): Promise<DashboardData> {
   try {
@@ -48,6 +57,8 @@ async function getDashboardData(): Promise<DashboardData> {
       | PlatformHealth
       | null = null;
 
+    let anomalies: GridAnomaly[] = [];
+
     try {
       health =
         await getPlatformHealth();
@@ -55,10 +66,18 @@ async function getDashboardData(): Promise<DashboardData> {
       health = null;
     }
 
+    try {
+      anomalies =
+        await getGridAnomalies(20);
+    } catch {
+      anomalies = [];
+    }
+
     return {
       status,
       health,
       authorities,
+      anomalies,
       evCities,
       weather,
       apiAvailable: true,
@@ -68,6 +87,7 @@ async function getDashboardData(): Promise<DashboardData> {
       status: null,
       health: null,
       authorities: [],
+      anomalies: [],
       evCities: [],
       weather: [],
       apiAvailable: false,
@@ -75,23 +95,37 @@ async function getDashboardData(): Promise<DashboardData> {
   }
 }
 
+
 function formatNumber(
-  value: number | null | undefined,
+  value:
+    | number
+    | null
+    | undefined,
   digits = 0,
 ): string {
-  if (value === null || value === undefined) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
     return "—";
   }
 
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: digits,
-  }).format(value);
+  return new Intl.NumberFormat(
+    "en-US",
+    {
+      maximumFractionDigits:
+        digits,
+    },
+  ).format(value);
 }
+
+
 export default async function Home() {
   const {
     status,
     health,
     authorities,
+    anomalies,
     evCities,
     weather,
     apiAvailable,
@@ -368,6 +402,10 @@ export default async function Home() {
             ),
           )}
         </section>
+
+        <GridRiskPanel
+          anomalies={anomalies}
+        />
 
         <AnalyticsExplorer
           authorities={
