@@ -415,6 +415,35 @@ export interface PipelineLineageNode {
 
   position_x: number;
   position_y: number;
+
+  run_stage:
+    | string
+    | null;
+
+  latest_run_status:
+    | "STARTED"
+    | "SUCCEEDED"
+    | "FAILED"
+    | null;
+
+  latest_run_started_at:
+    | string
+    | null;
+
+  latest_run_finished_at:
+    | string
+    | null;
+
+  latest_run_duration_seconds:
+    | number
+    | null;
+
+  last_success_at:
+    | string
+    | null;
+
+  recent_runs: number;
+  recent_failures: number;
 }
 
 
@@ -431,6 +460,55 @@ export interface PipelineLineageEdge {
 export interface PipelineLineage {
   nodes: PipelineLineageNode[];
   edges: PipelineLineageEdge[];
+}
+
+
+
+export type PipelineRunStatus =
+  | "STARTED"
+  | "SUCCEEDED"
+  | "FAILED";
+
+
+export interface PipelineRun {
+  run_id: string;
+
+  stage: string;
+  status: PipelineRunStatus;
+
+  started_at: string;
+
+  finished_at:
+    | string
+    | null;
+
+  duration_seconds:
+    | number
+    | null;
+
+  exit_code:
+    | number
+    | null;
+
+  records_processed:
+    | number
+    | null;
+
+  command: string[];
+}
+
+
+export interface PipelineRunSummary {
+  total_runs: number;
+  running_runs: number;
+  failed_runs: number;
+  successful_runs: number;
+
+  last_success_at:
+    | string
+    | null;
+
+  runs: PipelineRun[];
 }
 
 
@@ -546,6 +624,16 @@ export async function getWeather(
 
 
 
+
+
+
+export async function getPipelineRuns(
+  limit = 50,
+): Promise<PipelineRunSummary> {
+  return fetchJSON<PipelineRunSummary>(
+    `/api/v1/platform/runs?limit=${limit}`,
+  );
+}
 
 
 export async function getPipelineLineage(): Promise<PipelineLineage> {

@@ -24,6 +24,8 @@ from gridpulse_intelligence.api_models import (
     PipelineLineageEdgeResponse,
     PipelineLineageNodeResponse,
     PipelineLineageResponse,
+    PipelineRunResponse,
+    PipelineRunSummaryResponse,
     PlatformHealthResponse,
     PlatformStatus,
     RegionalGridHistoryResponse,
@@ -43,6 +45,10 @@ from gridpulse_intelligence.incident_intelligence import (
     highest_operational_severity,
 )
 from gridpulse_intelligence.pipeline_lineage import build_pipeline_lineage
+from gridpulse_intelligence.pipeline_runs import (
+    last_successful_run,
+    load_pipeline_runs,
+)
 from gridpulse_intelligence.platform_health import PlatformHealthService
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
@@ -333,6 +339,60 @@ def platform_health(
 
 
 @app.get(
+    "/api/v1/platform/runs",
+    response_model=PipelineRunSummaryResponse,
+    tags=[
+        "platform",
+    ],
+)
+def pipeline_runs(
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=200,
+        ),
+    ] = 50,
+) -> PipelineRunSummaryResponse:
+    """Return actual recent GridPulse pipeline executions."""
+
+    try:
+        runs = load_pipeline_runs(
+            limit=limit,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Pipeline execution telemetry is currently unavailable."),
+        ) from exc
+
+    last_success = last_successful_run(runs)
+
+    return PipelineRunSummaryResponse(
+        total_runs=len(runs),
+        running_runs=sum(run.status == "STARTED" for run in runs),
+        failed_runs=sum(run.status == "FAILED" for run in runs),
+        successful_runs=sum(run.status == "SUCCEEDED" for run in runs),
+        last_success_at=(last_success.finished_at if last_success else None),
+        runs=[
+            PipelineRunResponse(
+                run_id=run.run_id,
+                stage=run.stage,
+                status=run.status,
+                started_at=run.started_at,
+                finished_at=run.finished_at,
+                duration_seconds=run.duration_seconds,
+                exit_code=run.exit_code,
+                records_processed=run.records_processed,
+                command=list(run.command),
+            )
+            for run in runs
+        ],
+    )
+
+
+@app.get(
     "/api/v1/platform/lineage",
     response_model=PipelineLineageResponse,
     tags=[
@@ -368,10 +428,15 @@ def pipeline_lineage(
             components=components,
         )
 
+        runs = load_pipeline_runs(
+            limit=200,
+        )
+
         nodes, edges = build_pipeline_lineage(
             freshness=freshness,
             components=components,
             incidents=incidents,
+            runs=runs,
         )
 
     except Exception as exc:
@@ -392,6 +457,14 @@ def pipeline_lineage(
                 source=node.source,
                 position_x=node.position_x,
                 position_y=node.position_y,
+                run_stage=node.run_stage,
+                latest_run_status=node.latest_run_status,
+                latest_run_started_at=node.latest_run_started_at,
+                latest_run_finished_at=node.latest_run_finished_at,
+                latest_run_duration_seconds=(node.latest_run_duration_seconds),
+                last_success_at=node.last_success_at,
+                recent_runs=node.recent_runs,
+                recent_failures=node.recent_failures,
             )
             for node in nodes
         ],

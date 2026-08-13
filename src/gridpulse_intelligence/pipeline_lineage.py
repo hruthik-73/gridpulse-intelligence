@@ -4,14 +4,44 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 
 from gridpulse_intelligence.incident_intelligence import (
     ComponentState,
     OperationalIncident,
 )
+from gridpulse_intelligence.pipeline_runs import (
+    PipelineRun,
+)
 from gridpulse_intelligence.source_freshness import (
     SourceFreshnessSignal,
 )
+
+STATE_RANK = {
+    "UNKNOWN": 0,
+    "HEALTHY": 1,
+    "DEGRADED": 2,
+    "UNHEALTHY": 3,
+}
+
+
+@dataclass(frozen=True)
+class PipelineStageTelemetry:
+    """Execution telemetry summarized for one pipeline stage."""
+
+    stage: str
+
+    latest_status: str | None
+
+    latest_started_at: datetime | None
+    latest_finished_at: datetime | None
+
+    latest_duration_seconds: float | None
+
+    last_success_at: datetime | None
+
+    recent_runs: int
+    recent_failures: int
 
 
 @dataclass(frozen=True)
@@ -33,6 +63,20 @@ class PipelineLineageNode:
 
     position_x: int
     position_y: int
+
+    run_stage: str | None
+
+    latest_run_status: str | None
+
+    latest_run_started_at: datetime | None
+    latest_run_finished_at: datetime | None
+
+    latest_run_duration_seconds: float | None
+
+    last_success_at: datetime | None
+
+    recent_runs: int
+    recent_failures: int
 
 
 @dataclass(frozen=True)
@@ -86,14 +130,7 @@ def _runtime_state(
 def _worst_state(
     states: Iterable[str],
 ) -> str:
-    """Return the most severe state."""
-
-    rank = {
-        "UNKNOWN": 0,
-        "HEALTHY": 1,
-        "DEGRADED": 2,
-        "UNHEALTHY": 3,
-    }
+    """Return the most severe materialized state."""
 
     materialized = list(states)
 
@@ -102,24 +139,128 @@ def _worst_state(
 
     return max(
         materialized,
-        key=lambda state: rank.get(
+        key=lambda state: STATE_RANK.get(
             state,
             0,
         ),
     )
 
 
+def _stage_telemetry(
+    runs: Iterable[PipelineRun],
+    stage: str,
+) -> PipelineStageTelemetry:
+    """Summarize actual execution history for one pipeline stage."""
+
+    stage_runs = sorted(
+        (run for run in runs if run.stage == stage),
+        key=lambda run: run.started_at,
+        reverse=True,
+    )
+
+    if not stage_runs:
+        return PipelineStageTelemetry(
+            stage=stage,
+            latest_status=None,
+            latest_started_at=None,
+            latest_finished_at=None,
+            latest_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
+        )
+
+    latest = stage_runs[0]
+
+    successful_runs = [run for run in stage_runs if run.status == "SUCCEEDED"]
+
+    last_success = (
+        max(
+            successful_runs,
+            key=lambda run: run.finished_at or run.started_at,
+        )
+        if successful_runs
+        else None
+    )
+
+    return PipelineStageTelemetry(
+        stage=stage,
+        latest_status=latest.status,
+        latest_started_at=(latest.started_at),
+        latest_finished_at=(latest.finished_at),
+        latest_duration_seconds=(latest.duration_seconds),
+        last_success_at=(
+            (last_success.finished_at or last_success.started_at) if last_success else None
+        ),
+        recent_runs=len(stage_runs),
+        recent_failures=sum(run.status == "FAILED" for run in stage_runs),
+    )
+
+
+def _stage_state(
+    telemetry: PipelineStageTelemetry,
+    dependency_state: str,
+) -> str:
+    """Represent verified execution health independently of upstream state."""
+
+    # Dependency health remains visible on its own lineage nodes
+    # and through Operational Incident Intelligence.
+    # A successful stage execution should therefore remain healthy.
+    del dependency_state
+
+    if telemetry.latest_status is None:
+        return "UNKNOWN"
+
+    if telemetry.latest_status == "FAILED":
+        return "UNHEALTHY"
+
+    if telemetry.latest_status in {
+        "STARTED",
+        "SUCCEEDED",
+    }:
+        return "HEALTHY"
+
+    return "UNKNOWN"
+
+
+def _incident_suffix(
+    incidents_by_source: dict[
+        str,
+        list[OperationalIncident],
+    ],
+    source: str,
+) -> str:
+    """Return concise incident evidence for one node source."""
+
+    incidents = incidents_by_source.get(
+        source,
+        [],
+    )
+
+    if not incidents:
+        return ""
+
+    top_incident = incidents[0]
+
+    return f" Active incident: {top_incident.title}."
+
+
 def build_pipeline_lineage(
     freshness: Iterable[SourceFreshnessSignal],
     components: Iterable[ComponentState],
     incidents: Iterable[OperationalIncident],
+    runs: Iterable[PipelineRun] = (),
 ) -> tuple[
     list[PipelineLineageNode],
     list[PipelineLineageEdge],
 ]:
     """Build current GridPulse lineage intelligence."""
 
-    freshness_by_source = {signal.source: signal for signal in freshness}
+    freshness_list = list(freshness)
+
+    run_list = list(runs)
+
+    freshness_by_source = {signal.source: signal for signal in freshness_list}
 
     components_by_name = {component.name: component for component in components}
 
@@ -134,6 +275,21 @@ def build_pipeline_lineage(
             [],
         ).append(incident)
 
+    for source_incidents in incidents_by_source.values():
+        source_incidents.sort(
+            key=lambda incident: (
+                -{
+                    "CRITICAL": 4,
+                    "HIGH": 3,
+                    "ELEVATED": 2,
+                    "NORMAL": 1,
+                }.get(
+                    incident.severity,
+                    0,
+                )
+            )
+        )
+
     def source_node(
         *,
         node_id: str,
@@ -145,18 +301,20 @@ def build_pipeline_lineage(
 
         if signal is None:
             state = "UNKNOWN"
+
             detail = "Freshness signal unavailable."
 
         else:
             state = _freshness_state(signal.state)
 
-            if signal.age_hours is None:
-                age = "unknown age"
-
-            else:
-                age = f"{signal.age_hours:.1f}h old"
+            age = f"{signal.age_hours:.1f}h old" if signal.age_hours is not None else "unknown age"
 
             detail = f"{signal.state} · {age} · {signal.timestamp_basis}"
+
+        detail += _incident_suffix(
+            incidents_by_source,
+            source,
+        )
 
         return PipelineLineageNode(
             node_id=node_id,
@@ -168,6 +326,14 @@ def build_pipeline_lineage(
             source=source,
             position_x=5,
             position_y=y,
+            run_stage=None,
+            latest_run_status=None,
+            latest_run_started_at=None,
+            latest_run_finished_at=None,
+            latest_run_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
         )
 
     kafka_component = components_by_name.get("kafka")
@@ -175,7 +341,12 @@ def build_pipeline_lineage(
     kafka_state = _runtime_state(kafka_component.status) if kafka_component else "UNKNOWN"
 
     kafka_detail = (
-        kafka_component.detail if kafka_component else "Kafka runtime health unavailable."
+        kafka_component.detail if kafka_component else ("Kafka runtime health unavailable.")
+    )
+
+    kafka_detail += _incident_suffix(
+        incidents_by_source,
+        "kafka",
     )
 
     consumer_component = components_by_name.get("kafka_consumer")
@@ -189,27 +360,99 @@ def build_pipeline_lineage(
     )
 
     warehouse_detail = (
-        warehouse_component.detail if warehouse_component else "Warehouse health unavailable."
+        warehouse_component.detail if warehouse_component else ("Warehouse health unavailable.")
     )
 
-    source_states = [_freshness_state(signal.state) for signal in freshness_by_source.values()]
-
-    ingestion_state = _worst_state(
-        source_states
-        + [
-            kafka_state,
-        ]
+    warehouse_detail += _incident_suffix(
+        incidents_by_source,
+        "warehouse",
     )
 
-    transformation_state = _worst_state(
+    source_states = [_freshness_state(signal.state) for signal in freshness_list]
+
+    bronze_telemetry = _stage_telemetry(
+        run_list,
+        "kafka_to_bronze",
+    )
+
+    silver_telemetry = _stage_telemetry(
+        run_list,
+        "bronze_to_silver",
+    )
+
+    gold_telemetry = _stage_telemetry(
+        run_list,
+        "build_gold",
+    )
+
+    dbt_telemetry = _stage_telemetry(
+        run_list,
+        "dbt_build",
+    )
+
+    ingestion_dependency_state = _worst_state(
         [
-            ingestion_state,
+            *source_states,
+            kafka_state,
             consumer_state,
-            warehouse_state,
         ]
     )
 
-    serving_state = warehouse_state
+    bronze_state = _stage_state(
+        bronze_telemetry,
+        ingestion_dependency_state,
+    )
+
+    silver_state = _stage_state(
+        silver_telemetry,
+        bronze_state,
+    )
+
+    gold_state = _stage_state(
+        gold_telemetry,
+        silver_state,
+    )
+
+    dbt_state = _stage_state(
+        dbt_telemetry,
+        _worst_state(
+            [
+                gold_state,
+                warehouse_state,
+            ]
+        ),
+    )
+
+    def execution_node(
+        *,
+        node_id: str,
+        label: str,
+        layer: str,
+        technology: str,
+        state: str,
+        detail: str,
+        x: int,
+        telemetry: PipelineStageTelemetry,
+    ) -> PipelineLineageNode:
+        return PipelineLineageNode(
+            node_id=node_id,
+            label=label,
+            layer=layer,
+            technology=technology,
+            state=state,
+            detail=detail,
+            source=None,
+            position_x=x,
+            position_y=50,
+            run_stage=(telemetry.stage),
+            latest_run_status=(telemetry.latest_status),
+            latest_run_started_at=(telemetry.latest_started_at),
+            latest_run_finished_at=(telemetry.latest_finished_at),
+            latest_run_duration_seconds=(telemetry.latest_duration_seconds),
+            last_success_at=(telemetry.last_success_at),
+            recent_runs=(telemetry.recent_runs),
+            recent_failures=(telemetry.recent_failures),
+        )
 
     nodes = [
         source_node(
@@ -240,50 +483,54 @@ def build_pipeline_lineage(
             source="kafka",
             position_x=20,
             position_y=50,
+            run_stage=None,
+            latest_run_status=None,
+            latest_run_started_at=None,
+            latest_run_finished_at=None,
+            latest_run_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
         ),
-        PipelineLineageNode(
+        execution_node(
             node_id="spark-bronze",
             label="Bronze",
             layer="LAKEHOUSE",
             technology="Spark",
-            state=transformation_state,
-            detail=("Raw event normalization and replay-safe Bronze writes."),
-            source=None,
-            position_x=35,
-            position_y=50,
+            state=bronze_state,
+            detail=("Kafka event ingestion into replay-safe Bronze."),
+            x=35,
+            telemetry=bronze_telemetry,
         ),
-        PipelineLineageNode(
+        execution_node(
             node_id="spark-silver",
             label="Silver",
             layer="LAKEHOUSE",
             technology="Spark",
-            state=transformation_state,
-            detail=("Validated and deduplicated domain records."),
-            source=None,
-            position_x=48,
-            position_y=50,
+            state=silver_state,
+            detail=("Validated, normalized, and deduplicated records."),
+            x=48,
+            telemetry=silver_telemetry,
         ),
-        PipelineLineageNode(
+        execution_node(
             node_id="spark-gold",
             label="Gold",
             layer="ANALYTICS",
             technology="Spark",
-            state=transformation_state,
+            state=gold_state,
             detail=("Analytics-ready energy, weather, and EV marts."),
-            source=None,
-            position_x=61,
-            position_y=50,
+            x=61,
+            telemetry=gold_telemetry,
         ),
-        PipelineLineageNode(
+        execution_node(
             node_id="dbt",
             label="dbt",
             layer="MODELING",
             technology="dbt",
-            state=warehouse_state,
+            state=dbt_state,
             detail=("Tested analytical models and semantic marts."),
-            source=None,
-            position_x=72,
-            position_y=50,
+            x=72,
+            telemetry=dbt_telemetry,
         ),
         PipelineLineageNode(
             node_id="duckdb",
@@ -295,28 +542,52 @@ def build_pipeline_lineage(
             source="warehouse",
             position_x=82,
             position_y=50,
+            run_stage=None,
+            latest_run_status=None,
+            latest_run_started_at=None,
+            latest_run_finished_at=None,
+            latest_run_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
         ),
         PipelineLineageNode(
             node_id="fastapi",
             label="FastAPI",
             layer="SERVING",
             technology="FastAPI",
-            state=serving_state,
+            state=warehouse_state,
             detail=("GridPulse intelligence serving layer."),
             source=None,
             position_x=91,
             position_y=35,
+            run_stage=None,
+            latest_run_status=None,
+            latest_run_started_at=None,
+            latest_run_finished_at=None,
+            latest_run_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
         ),
         PipelineLineageNode(
             node_id="nextjs",
             label="Next.js",
             layer="EXPERIENCE",
             technology="Next.js",
-            state=serving_state,
+            state=warehouse_state,
             detail=("Interactive operational intelligence interface."),
             source=None,
             position_x=91,
             position_y=68,
+            run_stage=None,
+            latest_run_status=None,
+            latest_run_started_at=None,
+            latest_run_finished_at=None,
+            latest_run_duration_seconds=None,
+            last_success_at=None,
+            recent_runs=0,
+            recent_failures=0,
         ),
     ]
 

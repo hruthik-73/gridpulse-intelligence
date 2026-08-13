@@ -46,11 +46,98 @@ function nodeStyle(
     default:
       return {
         color:
-          "rgba(255,255,255,0.35)",
+          "rgba(255,255,255,0.30)",
         text:
           "text-white/35",
       };
   }
+}
+
+
+function runColor(
+  status:
+    PipelineLineageNode[
+      "latest_run_status"
+    ],
+): string {
+  switch (status) {
+    case "SUCCEEDED":
+      return "#6ee7b7";
+
+    case "FAILED":
+      return "#fb7185";
+
+    case "STARTED":
+      return "#7dd3fc";
+
+    default:
+      return "rgba(255,255,255,0.22)";
+  }
+}
+
+
+function formatDuration(
+  value:
+    | number
+    | null,
+): string {
+  if (value === null) {
+    return "—";
+  }
+
+  if (value < 1) {
+    return `${Math.max(
+      1,
+      Math.round(
+        value * 1000,
+      ),
+    )} ms`;
+  }
+
+  if (value < 60) {
+    return `${value.toFixed(
+      1,
+    )}s`;
+  }
+
+  return `${(
+    value / 60
+  ).toFixed(1)}m`;
+}
+
+
+function formatTime(
+  value:
+    | string
+    | null,
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  const date =
+    new Date(
+      value,
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return value;
+  }
+
+  return date.toLocaleString(
+    "en-US",
+    {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    },
+  );
 }
 
 
@@ -163,6 +250,13 @@ export default function PipelineLineagePanel() {
         === "DEGRADED",
     ).length;
 
+  const instrumented =
+    lineage.nodes.filter(
+      (node) =>
+        node.latest_run_status
+        !== null,
+    ).length;
+
   return (
     <section
       id="pipeline-lineage"
@@ -183,32 +277,31 @@ export default function PipelineLineagePanel() {
           </h2>
 
           <p className="mt-1 max-w-[760px] text-[10px] leading-5 text-white/30">
-            Inspect how public data
-            flows through streaming,
-            lakehouse transformation,
-            analytics modeling,
-            serving, and the GridPulse
-            intelligence experience.
+            Runtime health,
+            source freshness, and
+            verified execution
+            telemetry across the
+            GridPulse data path.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <div className="rounded-full border border-white/[0.06] bg-black/25 px-3 py-2 text-[8px] text-white/30">
-            {
-              lineage.nodes.length
-            } nodes
+        <div className="flex flex-wrap gap-2">
+          <div className="rounded-full border border-emerald-300/10 bg-emerald-300/[0.025] px-3 py-2 text-[8px] text-emerald-200/60">
+            {instrumented}
+            {" "}
+            instrumented
           </div>
 
           <div className="rounded-full border border-amber-300/10 bg-amber-300/[0.025] px-3 py-2 text-[8px] text-amber-200/60">
-            {
-              degraded
-            } degraded
+            {degraded}
+            {" "}
+            degraded
           </div>
 
           <div className="rounded-full border border-rose-400/10 bg-rose-400/[0.025] px-3 py-2 text-[8px] text-rose-300/60">
-            {
-              unhealthy
-            } unhealthy
+            {unhealthy}
+            {" "}
+            unhealthy
           </div>
         </div>
       </div>
@@ -232,7 +325,7 @@ export default function PipelineLineagePanel() {
                 <stop
                   offset="0%"
                   stopColor="#6ee7b7"
-                  stopOpacity="0.15"
+                  stopOpacity="0.12"
                 />
 
                 <stop
@@ -244,7 +337,7 @@ export default function PipelineLineagePanel() {
                 <stop
                   offset="100%"
                   stopColor="#6ee7b7"
-                  stopOpacity="0.15"
+                  stopOpacity="0.12"
                 />
               </linearGradient>
             </defs>
@@ -306,7 +399,7 @@ export default function PipelineLineagePanel() {
                     <path
                       d={path}
                       fill="none"
-                      stroke="rgba(110,231,183,0.08)"
+                      stroke="rgba(110,231,183,0.07)"
                       strokeWidth="5"
                     />
 
@@ -342,6 +435,11 @@ export default function PipelineLineagePanel() {
                 node.node_id
                 === selectedNodeId;
 
+              const executionColor =
+                runColor(
+                  node.latest_run_status,
+                );
+
               return (
                 <button
                   key={
@@ -372,7 +470,7 @@ export default function PipelineLineagePanel() {
                   )}
 
                   <span
-                    className={`relative flex min-w-[74px] flex-col items-center rounded-xl border bg-[#07110e]/95 px-3 py-3 backdrop-blur transition-all duration-300 ${
+                    className={`relative flex min-w-[78px] flex-col items-center rounded-xl border bg-[#07110e]/95 px-3 py-3 backdrop-blur transition-all duration-300 ${
                       selected
                         ? "scale-110 border-white/20 shadow-[0_12px_35px_rgba(0,0,0,0.4)]"
                         : "border-white/[0.07] group-hover:scale-105 group-hover:border-white/15"
@@ -395,6 +493,25 @@ export default function PipelineLineagePanel() {
                     <span className="mt-1 whitespace-nowrap text-[6px] uppercase tracking-[0.1em] text-white/20">
                       {node.layer}
                     </span>
+
+                    {node.run_stage && (
+                      <span className="mt-2 flex items-center gap-1.5 border-t border-white/[0.045] pt-2">
+                        <span
+                          className="h-1 w-1 rounded-full"
+                          style={{
+                            background:
+                              executionColor,
+                            boxShadow:
+                              `0 0 6px ${executionColor}`,
+                          }}
+                        />
+
+                        <span className="text-[6px] uppercase tracking-[0.08em] text-white/25">
+                          {node.latest_run_status
+                            ?? "NO RUN"}
+                        </span>
+                      </span>
+                    )}
                   </span>
                 </button>
               );
@@ -419,27 +536,23 @@ export default function PipelineLineagePanel() {
 
       <div className="flex flex-wrap gap-5 border-t border-white/[0.05] px-5 py-3 text-[7px] uppercase tracking-[0.11em] text-white/20 lg:px-6">
         <span>
-          Public APIs
+          Source freshness
         </span>
 
         <span>
-          Streaming
+          Runtime health
         </span>
 
         <span>
-          Lakehouse
+          Verified executions
         </span>
 
         <span>
-          Analytics
+          Failure history
         </span>
 
         <span>
-          Serving
-        </span>
-
-        <span>
-          Experience
+          Lineage
         </span>
       </div>
     </section>
@@ -455,6 +568,11 @@ function NodeInspector({
   const style =
     nodeStyle(
       node.state,
+    );
+
+  const executionColor =
+    runColor(
+      node.latest_run_status,
     );
 
   return (
@@ -487,19 +605,11 @@ function NodeInspector({
 
       <p className="mt-1 text-[9px] text-white/30">
         {node.technology}
+        {" · "}
+        {node.layer}
       </p>
 
       <div className="mt-6 rounded-xl border border-white/[0.055] bg-black/20 p-4">
-        <p className="text-[7px] uppercase tracking-[0.13em] text-white/20">
-          Pipeline layer
-        </p>
-
-        <p className="mt-2 text-sm text-white/60">
-          {node.layer}
-        </p>
-      </div>
-
-      <div className="mt-3 rounded-xl border border-white/[0.055] bg-black/20 p-4">
         <p className="text-[7px] uppercase tracking-[0.13em] text-white/20">
           Current evidence
         </p>
@@ -508,6 +618,92 @@ function NodeInspector({
           {node.detail}
         </p>
       </div>
+
+      {node.run_stage && (
+        <div className="mt-3 rounded-xl border border-white/[0.06] bg-black/20 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-[7px] uppercase tracking-[0.13em] text-white/20">
+              Execution telemetry
+            </p>
+
+            <div className="flex items-center gap-2">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background:
+                    executionColor,
+                  boxShadow:
+                    `0 0 8px ${executionColor}`,
+                }}
+              />
+
+              <span className="text-[8px] font-semibold text-white/50">
+                {node.latest_run_status
+                  ?? "NO EXECUTION DATA"}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3 border-t border-white/[0.045] pt-4">
+            <InspectorRow
+              label="Stage"
+              value={
+                node.run_stage
+              }
+              mono
+            />
+
+            <InspectorRow
+              label="Last duration"
+              value={
+                formatDuration(
+                  node.latest_run_duration_seconds,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Latest run"
+              value={
+                formatTime(
+                  node.latest_run_started_at,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Last success"
+              value={
+                formatTime(
+                  node.last_success_at,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Recent runs"
+              value={
+                String(
+                  node.recent_runs,
+                )
+              }
+            />
+
+            <InspectorRow
+              label="Recent failures"
+              value={
+                String(
+                  node.recent_failures,
+                )
+              }
+              alert={
+                node.recent_failures
+                > 0
+              }
+            />
+          </div>
+        </div>
+      )}
 
       {node.source && (
         <div className="mt-3 rounded-xl border border-emerald-300/[0.07] bg-emerald-300/[0.018] p-4">
@@ -520,6 +716,41 @@ function NodeInspector({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function InspectorRow({
+  label,
+  value,
+  mono = false,
+  alert = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  alert?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-[7px] uppercase tracking-[0.11em] text-white/20">
+        {label}
+      </span>
+
+      <span
+        className={`text-right text-[8px] ${
+          mono
+            ? "font-mono"
+            : ""
+        } ${
+          alert
+            ? "text-rose-300/80"
+            : "text-white/45"
+        }`}
+      >
+        {value}
+      </span>
     </div>
   );
 }

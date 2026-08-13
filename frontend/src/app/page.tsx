@@ -6,6 +6,7 @@ import NationalCommandCenter from "@/components/NationalCommandCenter";
 import OperationalIncidentPanel from "@/components/OperationalIncidentPanel";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
 import PipelineLineagePanel from "@/components/PipelineLineagePanel";
+import PipelineRunsPanel from "@/components/PipelineRunsPanel";
 import RegionalGridExperience from "@/components/RegionalGridExperience";
 import RegionalGridPanel from "@/components/RegionalGridPanel";
 
@@ -508,6 +509,8 @@ export default async function Home() {
           className="scroll-mt-6"
         >
           <PipelineLineagePanel />
+
+        <PipelineRunsPanel />
 
         <PlatformHealthPanel
             health={health}

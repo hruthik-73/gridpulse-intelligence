@@ -373,6 +373,20 @@ class PipelineLineageNodeResponse(BaseModel):
     position_x: int
     position_y: int
 
+    run_stage: str | None
+
+    latest_run_status: str | None
+
+    latest_run_started_at: datetime | None
+    latest_run_finished_at: datetime | None
+
+    latest_run_duration_seconds: float | None
+
+    last_success_at: datetime | None
+
+    recent_runs: int
+    recent_failures: int
+
 
 class PipelineLineageEdgeResponse(BaseModel):
     """Directed edge between lineage nodes."""
@@ -399,3 +413,42 @@ class PipelineLineageResponse(BaseModel):
     nodes: list[PipelineLineageNodeResponse]
 
     edges: list[PipelineLineageEdgeResponse]
+
+
+class PipelineRunResponse(BaseModel):
+    """Latest state of one real GridPulse pipeline execution."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    run_id: str
+    stage: str
+    status: str
+
+    started_at: datetime
+    finished_at: datetime | None
+
+    duration_seconds: float | None
+    exit_code: int | None
+
+    records_processed: int | None
+
+    command: list[str]
+
+
+class PipelineRunSummaryResponse(BaseModel):
+    """Recent GridPulse pipeline execution summary."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    total_runs: int
+    running_runs: int
+    failed_runs: int
+    successful_runs: int
+
+    last_success_at: datetime | None
+
+    runs: list[PipelineRunResponse]

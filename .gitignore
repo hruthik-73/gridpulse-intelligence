@@ -144,3 +144,4 @@ analytics/dbt/dbt_packages/
 # Local DuckDB warehouse
 data/warehouse/*.duckdb
 data/warehouse/*.duckdb.wal
+data/observability/*.jsonl
