@@ -1,6 +1,7 @@
 import AnalyticsExplorer from "@/components/AnalyticsExplorer";
 import GridCore from "@/components/GridCore";
 import GridRiskPanel from "@/components/GridRiskPanel";
+import NationalCommandCenter from "@/components/NationalCommandCenter";
 import PlatformHealthPanel from "@/components/PlatformHealthPanel";
 import RegionalGridPanel from "@/components/RegionalGridPanel";
 
@@ -161,6 +162,12 @@ export default async function Home() {
 
   const topEvCity =
     evCities[0];
+
+  const topRisk =
+    anomalies[0] ?? null;
+
+  const topRegion =
+    regions[0] ?? null;
 
   const platformLabel =
     !apiAvailable
@@ -425,25 +432,67 @@ export default async function Home() {
           )}
         </section>
 
-        <GridRiskPanel
-          anomalies={anomalies}
-        />
-
-        <RegionalGridPanel
-          regions={regions}
-        />
-
-        <AnalyticsExplorer
-          authorities={
-            authorities
+        <NationalCommandCenter
+          topRisk={topRisk}
+          topRegion={topRegion}
+          weather={
+            currentWeather ??
+            null
           }
-          weather={weather}
-          evCities={evCities}
-        />
-
-        <PlatformHealthPanel
+          topEvCity={
+            topEvCity ??
+            null
+          }
           health={health}
         />
+
+        <div
+          id="grid-risk"
+          className="scroll-mt-6"
+        >
+          <GridRiskPanel
+            anomalies={
+              anomalies
+            }
+          />
+        </div>
+
+        <div
+          id="regional-grid"
+          className="scroll-mt-6"
+        >
+          <RegionalGridPanel
+            regions={
+              regions
+            }
+          />
+        </div>
+
+        <div
+          id="analytics-explorer"
+          className="scroll-mt-6"
+        >
+          <AnalyticsExplorer
+            authorities={
+              authorities
+            }
+            weather={
+              weather
+            }
+            evCities={
+              evCities
+            }
+          />
+        </div>
+
+        <div
+          id="platform-health"
+          className="scroll-mt-6"
+        >
+          <PlatformHealthPanel
+            health={health}
+          />
+        </div>
 
         <section className="mt-5">
           <article className="architecture-panel">
