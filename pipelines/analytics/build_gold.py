@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import (
+    DataFrame,
+    SparkSession,
+)
 
 from gridpulse_intelligence.spark_gold import (
     build_afdc_city_mart,
@@ -24,7 +27,10 @@ AFDC_SILVER_PATH = SILVER_ROOT / "afdc_ev_stations"
 def write_gold(
     dataframe: DataFrame,
     path: Path,
-    partition_columns: tuple[str, ...] = (),
+    partition_columns: tuple[
+        str,
+        ...,
+    ] = (),
 ) -> None:
     """Write one Gold mart idempotently."""
 
@@ -81,6 +87,20 @@ def main() -> None:
         ("state",),
     )
 
+    eia_silver_count = eia_silver.count()
+
+    eia_gold_count = eia_gold.count()
+
+    nws_silver_count = nws_silver.count()
+
+    nws_gold_count = nws_gold.count()
+
+    afdc_silver_count = afdc_silver.count()
+
+    afdc_gold_count = afdc_gold.count()
+
+    input_records = eia_silver_count + nws_silver_count + afdc_silver_count
+
     print()
     print("=" * 68)
     print("GRIDPULSE GOLD BUILD")
@@ -88,35 +108,46 @@ def main() -> None:
 
     print(
         "EIA Silver rows:",
-        eia_silver.count(),
+        eia_silver_count,
     )
 
     print(
         "EIA Gold hourly rows:",
-        eia_gold.count(),
+        eia_gold_count,
     )
 
     print(
         "NWS Silver rows:",
-        nws_silver.count(),
+        nws_silver_count,
     )
 
     print(
         "NWS Gold hourly rows:",
-        nws_gold.count(),
+        nws_gold_count,
     )
 
     print(
         "AFDC Silver stations:",
-        afdc_silver.count(),
+        afdc_silver_count,
     )
 
     print(
         "AFDC Gold cities:",
-        afdc_gold.count(),
+        afdc_gold_count,
+    )
+
+    print(
+        "Total Silver input records:",
+        input_records,
     )
 
     print("=" * 68)
+
+    # Gold processes three Silver inputs.
+    # Telemetry therefore records the sum of the real
+    # input rows handled by this execution.
+    print(f"GRIDPULSE_RECORDS_PROCESSED={input_records}")
+
     print("Gold build completed.")
     print()
 

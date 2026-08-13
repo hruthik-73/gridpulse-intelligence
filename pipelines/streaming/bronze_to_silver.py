@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import (
+    DataFrame,
+    SparkSession,
+)
 from pyspark.sql import functions as F
 
 from gridpulse_intelligence.spark_silver import (
@@ -24,7 +27,10 @@ QUARANTINE_PATH = Path("data/quarantine/silver_events")
 def write_dataset(
     dataframe: DataFrame,
     path: Path,
-    partition_columns: tuple[str, ...] = (),
+    partition_columns: tuple[
+        str,
+        ...,
+    ] = (),
 ) -> None:
     """Write one Silver dataset idempotently."""
 
@@ -141,31 +147,53 @@ def main() -> None:
         ("source",),
     )
 
+    bronze_count = bronze.count()
+
+    eia_count = eia_silver.count()
+
+    nws_count = nws_silver.count()
+
+    afdc_count = afdc_silver.count()
+
+    invalid_count = invalid.count()
+
     print()
     print("=" * 64)
     print("GRIDPULSE SILVER BUILD")
     print("=" * 64)
+
     print(
         "Bronze input:",
-        bronze.count(),
+        bronze_count,
     )
+
     print(
         "EIA Silver:",
-        eia_silver.count(),
+        eia_count,
     )
+
     print(
         "NWS Silver:",
-        nws_silver.count(),
+        nws_count,
     )
+
     print(
         "AFDC Silver:",
-        afdc_silver.count(),
+        afdc_count,
     )
+
     print(
         "Silver quality failures:",
-        invalid.count(),
+        invalid_count,
     )
+
     print("=" * 64)
+
+    # This stage is a full Bronze → Silver rebuild,
+    # so the truthful processed-record count is the
+    # number of Bronze input records evaluated.
+    print(f"GRIDPULSE_RECORDS_PROCESSED={bronze_count}")
+
     print("Silver build completed.")
     print()
 

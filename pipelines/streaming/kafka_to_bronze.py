@@ -2,9 +2,11 @@
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.streaming import StreamingQuery
 
 from gridpulse_intelligence.kafka_consumer import (
     DEFAULT_TOPICS,
@@ -45,8 +47,39 @@ def build_spark_session() -> SparkSession:
             "spark.sql.shuffle.partitions",
             "3",
         )
+        .config(
+            "spark.sql.streaming.numRecentProgressUpdates",
+            "1000",
+        )
         .getOrCreate()
     )
+
+
+def input_rows_processed(
+    query: StreamingQuery,
+) -> int:
+    """Return Kafka rows handled across available micro-batches."""
+
+    total = 0
+
+    for progress in query.recentProgress:
+        progress_data: dict[
+            str,
+            Any,
+        ] = progress
+
+        value = progress_data.get(
+            "numInputRows",
+            0,
+        )
+
+        if isinstance(
+            value,
+            int | float,
+        ):
+            total += int(value)
+
+    return total
 
 
 def run_stream(
@@ -113,6 +146,8 @@ def run_stream(
 
     bronze_query.awaitTermination()
 
+    kafka_input_rows = input_rows_processed(bronze_query)
+
     quarantine_query = (
         invalid_events.writeStream.queryName("gridpulse-quarantine-events")
         .format("parquet")
@@ -128,10 +163,35 @@ def run_stream(
     quarantine_query.awaitTermination()
 
     print()
-    print("Structured Streaming run completed.")
-    print(f"Bronze: {DEFAULT_BRONZE_PATH}")
-    print(f"Quarantine: {DEFAULT_QUARANTINE_PATH}")
+    print("=" * 64)
+    print("KAFKA → BRONZE EXECUTION")
+    print("=" * 64)
+    print(
+        "Kafka input records:",
+        kafka_input_rows,
+    )
+    print(
+        "Bronze:",
+        DEFAULT_BRONZE_PATH,
+    )
+    print(
+        "Quarantine:",
+        DEFAULT_QUARANTINE_PATH,
+    )
     print("Spark checkpoints preserved.")
+    print("=" * 64)
+
+    # Machine-readable marker consumed by
+    # gridpulse_intelligence.pipeline_runs.
+    #
+    # This represents Kafka source records handled by
+    # the primary Bronze streaming query. We intentionally
+    # do not add quarantine-query input rows because that
+    # query evaluates the same Kafka source independently.
+    print(f"GRIDPULSE_RECORDS_PROCESSED={kafka_input_rows}")
+
+    print()
+    print("Structured Streaming run completed.")
     print()
 
     spark.stop()
