@@ -389,6 +389,51 @@ export interface OperationalIncidentSummary {
 }
 
 
+
+export type PipelineNodeState =
+  | "HEALTHY"
+  | "DEGRADED"
+  | "UNHEALTHY"
+  | "UNKNOWN";
+
+
+export interface PipelineLineageNode {
+  node_id: string;
+
+  label: string;
+  layer: string;
+
+  technology: string;
+
+  state: PipelineNodeState;
+
+  detail: string;
+
+  source:
+    | string
+    | null;
+
+  position_x: number;
+  position_y: number;
+}
+
+
+export interface PipelineLineageEdge {
+  edge_id: string;
+
+  source_node: string;
+  target_node: string;
+
+  label: string;
+}
+
+
+export interface PipelineLineage {
+  nodes: PipelineLineageNode[];
+  edges: PipelineLineageEdge[];
+}
+
+
 async function fetchJSON<T>(
   path: string,
 ): Promise<T> {
@@ -500,6 +545,14 @@ export async function getWeather(
 }
 
 
+
+
+
+export async function getPipelineLineage(): Promise<PipelineLineage> {
+  return fetchJSON<PipelineLineage>(
+    "/api/v1/platform/lineage",
+  );
+}
 
 
 export async function getOperationalIncidents(): Promise<OperationalIncidentSummary> {

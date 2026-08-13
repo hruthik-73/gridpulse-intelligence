@@ -348,3 +348,54 @@ class OperationalIncidentSummaryResponse(BaseModel):
     highest_severity: str
 
     incidents: list[OperationalIncidentResponse]
+
+
+class PipelineLineageNodeResponse(BaseModel):
+    """One node in the GridPulse pipeline lineage."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    node_id: str
+
+    label: str
+    layer: str
+
+    technology: str
+
+    state: str
+
+    detail: str
+
+    source: str | None
+
+    position_x: int
+    position_y: int
+
+
+class PipelineLineageEdgeResponse(BaseModel):
+    """Directed edge between lineage nodes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    edge_id: str
+
+    source_node: str
+    target_node: str
+
+    label: str
+
+
+class PipelineLineageResponse(BaseModel):
+    """Current GridPulse lineage intelligence."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    nodes: list[PipelineLineageNodeResponse]
+
+    edges: list[PipelineLineageEdgeResponse]

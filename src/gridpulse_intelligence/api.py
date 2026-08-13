@@ -21,6 +21,9 @@ from gridpulse_intelligence.api_models import (
     GridAnomalyResponse,
     OperationalIncidentResponse,
     OperationalIncidentSummaryResponse,
+    PipelineLineageEdgeResponse,
+    PipelineLineageNodeResponse,
+    PipelineLineageResponse,
     PlatformHealthResponse,
     PlatformStatus,
     RegionalGridHistoryResponse,
@@ -39,6 +42,7 @@ from gridpulse_intelligence.incident_intelligence import (
     build_operational_incidents,
     highest_operational_severity,
 )
+from gridpulse_intelligence.pipeline_lineage import build_pipeline_lineage
 from gridpulse_intelligence.platform_health import PlatformHealthService
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
@@ -325,6 +329,81 @@ def platform_health(
         kafka_consumer=response_component(
             "kafka_consumer",
         ),
+    )
+
+
+@app.get(
+    "/api/v1/platform/lineage",
+    response_model=PipelineLineageResponse,
+    tags=[
+        "platform",
+    ],
+)
+def pipeline_lineage(
+    health_service: HealthServiceDependency,
+) -> PipelineLineageResponse:
+    """Return current pipeline lineage intelligence."""
+
+    try:
+        freshness = load_source_freshness(
+            database_path=Path(
+                DEFAULT_DATABASE_PATH,
+            )
+        )
+
+        health = health_service.snapshot()
+
+        components = [
+            ComponentState(
+                name=name,
+                status=component.status,
+                detail=component.detail,
+                latency_ms=component.latency_ms,
+            )
+            for name, component in health.items()
+        ]
+
+        incidents = build_operational_incidents(
+            freshness=freshness,
+            components=components,
+        )
+
+        nodes, edges = build_pipeline_lineage(
+            freshness=freshness,
+            components=components,
+            incidents=incidents,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=("Pipeline lineage intelligence is currently unavailable."),
+        ) from exc
+
+    return PipelineLineageResponse(
+        nodes=[
+            PipelineLineageNodeResponse(
+                node_id=node.node_id,
+                label=node.label,
+                layer=node.layer,
+                technology=node.technology,
+                state=node.state,
+                detail=node.detail,
+                source=node.source,
+                position_x=node.position_x,
+                position_y=node.position_y,
+            )
+            for node in nodes
+        ],
+        edges=[
+            PipelineLineageEdgeResponse(
+                edge_id=edge.edge_id,
+                source_node=edge.source_node,
+                target_node=edge.target_node,
+                label=edge.label,
+            )
+            for edge in edges
+        ],
     )
 
 
