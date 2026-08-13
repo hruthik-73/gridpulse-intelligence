@@ -120,7 +120,8 @@ export interface WeatherForecast {
 export type HealthState =
   | "healthy"
   | "degraded"
-  | "unhealthy";
+  | "unhealthy"
+  | "local_only";
 
 
 export interface ComponentHealth {
@@ -132,6 +133,10 @@ export interface ComponentHealth {
 
 export interface PlatformHealth {
   status: HealthState;
+
+  runtime_mode:
+    | "local"
+    | "portfolio";
 
   warehouse: ComponentHealth;
   kafka: ComponentHealth;

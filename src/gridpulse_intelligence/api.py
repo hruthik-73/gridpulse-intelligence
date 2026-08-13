@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, make_asgi_app
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from gridpulse_intelligence.api_models import (
     APIHealth,
@@ -43,6 +44,11 @@ from gridpulse_intelligence.api_repository import (
 from gridpulse_intelligence.data_quality import (
     build_data_quality_snapshot,
 )
+from gridpulse_intelligence.deployment_config import (
+    get_cors_origins,
+    get_database_path,
+    get_runtime_mode,
+)
 from gridpulse_intelligence.grid_anomaly import load_grid_anomalies
 from gridpulse_intelligence.incident_intelligence import (
     ComponentState,
@@ -54,13 +60,59 @@ from gridpulse_intelligence.pipeline_runs import (
     last_successful_run,
     load_pipeline_runs,
 )
-from gridpulse_intelligence.platform_health import PlatformHealthService
+from gridpulse_intelligence.platform_health import (
+    ComponentHealth,
+    PlatformHealthService,
+)
 from gridpulse_intelligence.regional_grid import load_regional_grid_signals
 from gridpulse_intelligence.regional_history import load_regional_history
 from gridpulse_intelligence.regional_timeline import load_regional_timeline
 from gridpulse_intelligence.source_freshness import load_source_freshness
 
-DEFAULT_DATABASE_PATH = "data/warehouse/gridpulse.duckdb"
+DEFAULT_DATABASE_PATH = str(get_database_path())
+
+
+PORTFOLIO_OPERATIONAL_SNAPSHOT_PATH = (
+    Path(__file__).resolve().parent / "assets" / "gridpulse_operational_snapshot.json"
+)
+
+PORTFOLIO_OPERATIONAL_ROUTES = {
+    "/api/v1/platform/freshness",
+    "/api/v1/platform/incidents",
+    "/api/v1/platform/lineage",
+    "/api/v1/platform/runs",
+    "/api/v1/platform/data-quality",
+}
+
+
+@lru_cache
+def _load_portfolio_operational_snapshot() -> dict[str, Any]:
+    """Load retained operational evidence for Portfolio Mode."""
+
+    raw_payload: object = json.loads(PORTFOLIO_OPERATIONAL_SNAPSHOT_PATH.read_text())
+
+    if not isinstance(
+        raw_payload,
+        dict,
+    ):
+        raise RuntimeError("Invalid GridPulse operational snapshot.")
+
+    payload = cast(
+        dict[str, Any],
+        raw_payload,
+    )
+
+    routes = payload.get(
+        "routes",
+    )
+
+    if not isinstance(
+        routes,
+        dict,
+    ):
+        raise RuntimeError("Invalid GridPulse operational snapshot routes.")
+
+    return payload
 
 
 API_REQUESTS = Counter(
@@ -97,10 +149,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=[
         "*",
@@ -117,6 +166,50 @@ app.mount(
     "/metrics",
     metrics_app,
 )
+
+
+@app.middleware("http")
+async def portfolio_operational_snapshot(
+    request: Request,
+    call_next: Callable[
+        [Request],
+        Awaitable[Response],
+    ],
+) -> Response:
+    """Serve retained operational evidence in public Portfolio Mode."""
+
+    if (
+        get_runtime_mode() == "portfolio"
+        and request.method == "GET"
+        and request.url.path in PORTFOLIO_OPERATIONAL_ROUTES
+    ):
+        try:
+            snapshot = _load_portfolio_operational_snapshot()
+
+            routes = snapshot["routes"]
+
+            payload = routes.get(request.url.path)
+
+            if payload is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": ("Portfolio snapshot route unavailable.")},
+                )
+
+            return JSONResponse(content=payload)
+
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            RuntimeError,
+        ):
+            return JSONResponse(
+                status_code=503,
+                content={"detail": ("Portfolio operational snapshot unavailable.")},
+            )
+
+    return await call_next(request)
 
 
 def _route_label(
@@ -300,7 +393,58 @@ def platform_status(
 def platform_health(
     health_service: HealthServiceDependency,
 ) -> PlatformHealthResponse:
-    """Return runtime dependency health."""
+    """Return deployment-aware platform health."""
+
+    runtime_mode = get_runtime_mode()
+
+    def component_response(
+        component: ComponentHealth,
+    ) -> ComponentHealthResponse:
+        return ComponentHealthResponse(
+            status=component.status,
+            detail=component.detail,
+            latency_ms=component.latency_ms,
+        )
+
+    if runtime_mode == "portfolio":
+        warehouse = health_service.check_duckdb()
+
+        return PlatformHealthResponse(
+            status=("healthy" if warehouse.status == "healthy" else warehouse.status),
+            runtime_mode="portfolio",
+            warehouse=component_response(
+                warehouse,
+            ),
+            kafka=ComponentHealthResponse(
+                status="local_only",
+                detail=(
+                    "Apache Kafka belongs to the reproducible "
+                    "local GridPulse streaming environment and "
+                    "is not continuously executed by the public "
+                    "portfolio deployment."
+                ),
+                latency_ms=0.0,
+            ),
+            prometheus=ComponentHealthResponse(
+                status="local_only",
+                detail=(
+                    "Prometheus observability runs with the local "
+                    "GridPulse engineering environment and is not "
+                    "continuously executed by the public portfolio."
+                ),
+                latency_ms=0.0,
+            ),
+            kafka_consumer=ComponentHealthResponse(
+                status="local_only",
+                detail=(
+                    "The Kafka consumer runs with the local "
+                    "streaming environment. The public portfolio "
+                    "serves retained analytics and real historical "
+                    "execution evidence instead."
+                ),
+                latency_ms=0.0,
+            ),
+        )
 
     components = health_service.snapshot()
 
@@ -318,16 +462,13 @@ def platform_health(
     def response_component(
         name: str,
     ) -> ComponentHealthResponse:
-        component = components[name]
-
-        return ComponentHealthResponse(
-            status=component.status,
-            detail=component.detail,
-            latency_ms=component.latency_ms,
+        return component_response(
+            components[name],
         )
 
     return PlatformHealthResponse(
         status=overall_status,
+        runtime_mode="local",
         warehouse=response_component(
             "warehouse",
         ),

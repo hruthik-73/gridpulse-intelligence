@@ -10,6 +10,7 @@ from typing import Any
 
 import duckdb
 
+from gridpulse_intelligence.deployment_config import get_database_path
 from gridpulse_intelligence.regional_grid import (
     DEMAND_WEIGHT,
     FORECAST_WEIGHT,
@@ -19,7 +20,7 @@ from gridpulse_intelligence.regional_grid import (
     classify_pressure,
 )
 
-DEFAULT_DATABASE_PATH = Path("data/warehouse/gridpulse.duckdb")
+DEFAULT_DATABASE_PATH = get_database_path()
 
 
 @dataclass(frozen=True)

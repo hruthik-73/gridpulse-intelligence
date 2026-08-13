@@ -527,6 +527,26 @@ export default async function Home() {
         </div>
 
 
+        {health?.runtime_mode ===
+          "portfolio" && (
+          <section className="mt-5 rounded-[18px] border border-sky-300/[0.10] bg-sky-300/[0.025] px-6 py-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/80">
+              PUBLIC PORTFOLIO MODE
+            </p>
+
+            <p className="mt-2 max-w-4xl text-xs leading-5 text-white/35">
+              Operational intelligence below
+              uses retained, sanitized evidence
+              captured from the validated local
+              GridPulse pipeline. Kafka, Spark,
+              Prometheus, and the consumer are
+              not presented as continuously
+              running public cloud services.
+            </p>
+          </section>
+        )}
+
+
         <div
           id="platform-health"
           className="scroll-mt-6"

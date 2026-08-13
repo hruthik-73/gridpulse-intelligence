@@ -156,6 +156,7 @@ class PlatformHealthResponse(BaseModel):
     )
 
     status: str
+    runtime_mode: str
 
     warehouse: ComponentHealthResponse
     kafka: ComponentHealthResponse

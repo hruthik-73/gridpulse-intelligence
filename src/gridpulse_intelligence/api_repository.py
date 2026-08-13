@@ -6,7 +6,9 @@ from typing import Any
 import duckdb
 from duckdb import DuckDBPyConnection
 
-DEFAULT_DATABASE_PATH = Path("data/warehouse/gridpulse.duckdb")
+from gridpulse_intelligence.deployment_config import get_database_path
+
+DEFAULT_DATABASE_PATH = get_database_path()
 
 
 class GridPulseRepositoryError(Exception):

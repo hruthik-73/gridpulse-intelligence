@@ -7,7 +7,9 @@ from pathlib import Path
 
 import duckdb
 
-DEFAULT_DATABASE_PATH = Path("data/warehouse/gridpulse.duckdb")
+from gridpulse_intelligence.deployment_config import get_database_path
+
+DEFAULT_DATABASE_PATH = get_database_path()
 
 MIN_HISTORY_POINTS = 24
 MAX_DEVIATION_SCORE = 4.0
