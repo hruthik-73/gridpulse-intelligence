@@ -6,6 +6,7 @@ const API_URL =
 export interface PlatformStatus {
   status: string;
   database: string;
+
   grid_hourly_rows: number;
   balancing_authorities: number;
   ev_cities: number;
@@ -28,7 +29,9 @@ export interface GridAuthority {
   mean_abs_forecast_error_mwh: number | null;
   mean_abs_forecast_error_pct: number | null;
 
-  average_generation_demand_gap_mwh: number | null;
+  average_generation_demand_gap_mwh:
+    | number
+    | null;
 
   forecast_coverage_pct: number | null;
   generation_coverage_pct: number | null;
@@ -38,7 +41,9 @@ export interface GridAuthority {
 
   contains_replay: boolean;
 
-  latest_kafka_timestamp: string | null;
+  latest_kafka_timestamp:
+    | string
+    | null;
 }
 
 
@@ -61,13 +66,17 @@ export interface EVCity {
   network_count: number;
 
   ports_per_station: number | null;
-  dc_fast_station_share_pct: number | null;
+  dc_fast_station_share_pct:
+    | number
+    | null;
 
   state_station_rank: number;
   national_station_rank: number;
   state_port_rank: number;
 
-  latest_station_update: string | null;
+  latest_station_update:
+    | string
+    | null;
 }
 
 
@@ -86,10 +95,15 @@ export interface WeatherForecast {
   temperature_f: number | null;
   temperature_c: number | null;
 
-  precipitation_probability: number | null;
+  precipitation_probability:
+    | number
+    | null;
+
   precipitation_risk: string;
 
-  relative_humidity: number | null;
+  relative_humidity:
+    | number
+    | null;
 
   wind_speed: string | null;
   wind_direction: string | null;
@@ -144,6 +158,20 @@ export interface GridAnomaly {
 
   forecast_error_pct: number | null;
   generation_gap_pct: number | null;
+
+  history_points: number;
+
+  forecast_baseline_pct:
+    | number
+    | null;
+
+  forecast_deviation_score: number;
+
+  generation_baseline_pct:
+    | number
+    | null;
+
+  generation_deviation_score: number;
 
   risk_score: number;
   severity: GridRiskSeverity;

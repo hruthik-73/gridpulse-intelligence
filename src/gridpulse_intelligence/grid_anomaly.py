@@ -1,4 +1,4 @@
-"""Historical grid anomaly intelligence for GridPulse."""
+"""Explainable historical grid anomaly intelligence for GridPulse."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import duckdb
 DEFAULT_DATABASE_PATH = Path("data/warehouse/gridpulse.duckdb")
 
 MIN_HISTORY_POINTS = 24
-MAX_Z_SCORE = 4.0
+MAX_DEVIATION_SCORE = 4.0
 
 FORECAST_WEIGHT = 0.70
 GENERATION_WEIGHT = 0.30
@@ -18,7 +18,7 @@ GENERATION_WEIGHT = 0.30
 
 @dataclass(frozen=True)
 class GridAnomaly:
-    """Latest historical anomaly score for one balancing authority."""
+    """Latest explainable historical anomaly score for one authority."""
 
     period: str
     respondent: str
@@ -30,6 +30,14 @@ class GridAnomaly:
     forecast_error_pct: float | None
     generation_gap_pct: float | None
 
+    history_points: int
+
+    forecast_baseline_pct: float | None
+    forecast_deviation_score: float
+
+    generation_baseline_pct: float | None
+    generation_deviation_score: float
+
     risk_score: float
     severity: str
 
@@ -37,15 +45,20 @@ class GridAnomaly:
 def classify_severity(
     score: float,
 ) -> str:
-    """Convert a 0-100 historical risk score into severity."""
+    """Convert a displayed 0-100 risk score into severity."""
 
-    if score >= 90:
+    normalized_score = round(
+        score,
+        1,
+    )
+
+    if normalized_score >= 90:
         return "CRITICAL"
 
-    if score >= 75:
+    if normalized_score >= 75:
         return "HIGH"
 
-    if score >= 55:
+    if normalized_score >= 55:
         return "ELEVATED"
 
     return "NORMAL"
@@ -69,7 +82,11 @@ def load_grid_anomalies(
                 SELECT
                     period,
                     respondent,
-                    respondent_name,
+                    COALESCE(
+                        respondent_name,
+                        respondent
+                    ) AS respondent_name,
+
                     demand_mwh,
                     demand_forecast_mwh,
                     demand_forecast_error_pct,
@@ -116,9 +133,11 @@ def load_grid_anomalies(
                     period,
                     respondent,
                     respondent_name,
+
                     demand_mwh,
                     demand_forecast_mwh,
                     demand_forecast_error_pct,
+
                     forecast_error_abs_pct,
                     generation_gap_pct
 
@@ -134,8 +153,10 @@ def load_grid_anomalies(
                 FROM base AS historical
 
                 INNER JOIN latest
-                    ON historical.respondent = latest.respondent
-                   AND historical.period < latest.period
+                    ON historical.respondent
+                        = latest.respondent
+                   AND historical.period
+                        < latest.period
             ),
 
             historical_stats AS (
@@ -198,7 +219,8 @@ def load_grid_anomalies(
                 FROM history
 
                 INNER JOIN historical_stats AS stats
-                    ON history.respondent = stats.respondent
+                    ON history.respondent
+                        = stats.respondent
 
                 GROUP BY history.respondent
             ),
@@ -208,13 +230,20 @@ def load_grid_anomalies(
                     latest.period,
                     latest.respondent,
                     latest.respondent_name,
+
                     latest.demand_mwh,
                     latest.demand_forecast_mwh,
+
                     latest.demand_forecast_error_pct,
                     latest.generation_gap_pct,
 
                     stats.history_points,
-                    stats.generation_history_points,
+
+                    stats.forecast_error_median
+                        AS forecast_baseline_pct,
+
+                    stats.generation_gap_median
+                        AS generation_baseline_pct,
 
                     CASE
                         WHEN stats.history_points < ?
@@ -274,10 +303,31 @@ def load_grid_anomalies(
                 FROM latest
 
                 INNER JOIN historical_stats AS stats
-                    ON latest.respondent = stats.respondent
+                    ON latest.respondent
+                        = stats.respondent
 
                 INNER JOIN historical_mad AS mad
-                    ON latest.respondent = mad.respondent
+                    ON latest.respondent
+                        = mad.respondent
+            ),
+
+            capped AS (
+                SELECT
+                    *,
+
+                    LEAST(
+                        forecast_error_z,
+                        ?
+                    ) AS forecast_deviation_score,
+
+                    LEAST(
+                        generation_gap_z,
+                        ?
+                    ) AS generation_deviation_score
+
+                FROM normalized
+
+                WHERE history_points >= ?
             ),
 
             scored AS (
@@ -285,10 +335,20 @@ def load_grid_anomalies(
                     period,
                     respondent,
                     respondent_name,
+
                     demand_mwh,
                     demand_forecast_mwh,
+
                     demand_forecast_error_pct,
                     generation_gap_pct,
+
+                    history_points,
+
+                    forecast_baseline_pct,
+                    forecast_deviation_score,
+
+                    generation_baseline_pct,
+                    generation_deviation_score,
 
                     LEAST(
                         100.0,
@@ -296,34 +356,37 @@ def load_grid_anomalies(
                         25.0
                         * (
                             ?
-                            * LEAST(
-                                forecast_error_z,
-                                ?
-                            )
+                            * forecast_deviation_score
 
                             +
 
                             ?
-                            * LEAST(
-                                generation_gap_z,
-                                ?
-                            )
+                            * generation_deviation_score
                         )
                     ) AS risk_score
 
-                FROM normalized
-
-                WHERE history_points >= ?
+                FROM capped
             )
 
             SELECT
                 period,
                 respondent,
                 respondent_name,
+
                 demand_mwh,
                 demand_forecast_mwh,
+
                 demand_forecast_error_pct,
                 generation_gap_pct,
+
+                history_points,
+
+                forecast_baseline_pct,
+                forecast_deviation_score,
+
+                generation_baseline_pct,
+                generation_deviation_score,
+
                 risk_score
 
             FROM scored
@@ -338,11 +401,11 @@ def load_grid_anomalies(
             [
                 MIN_HISTORY_POINTS,
                 MIN_HISTORY_POINTS,
-                FORECAST_WEIGHT,
-                MAX_Z_SCORE,
-                GENERATION_WEIGHT,
-                MAX_Z_SCORE,
+                MAX_DEVIATION_SCORE,
+                MAX_DEVIATION_SCORE,
                 MIN_HISTORY_POINTS,
+                FORECAST_WEIGHT,
+                GENERATION_WEIGHT,
                 limit,
             ],
         ).fetchall()
@@ -350,38 +413,52 @@ def load_grid_anomalies(
     finally:
         connection.close()
 
-    return [
-        GridAnomaly(
-            period=str(row[0]),
-            respondent=row[1],
-            respondent_name=row[2],
-            demand_mwh=row[3],
-            demand_forecast_mwh=row[4],
-            forecast_error_pct=row[5],
-            generation_gap_pct=row[6],
-            risk_score=float(
-                row[7] or 0,
-            ),
-            severity=classify_severity(
-                float(
-                    row[7] or 0,
-                )
-            ),
+    anomalies: list[GridAnomaly] = []
+
+    for row in rows:
+        risk_score = round(
+            float(row[12] or 0),
+            1,
         )
-        for row in rows
-    ]
+
+        anomalies.append(
+            GridAnomaly(
+                period=str(row[0]),
+                respondent=row[1],
+                respondent_name=row[2],
+                demand_mwh=row[3],
+                demand_forecast_mwh=row[4],
+                forecast_error_pct=row[5],
+                generation_gap_pct=row[6],
+                history_points=int(row[7]),
+                forecast_baseline_pct=row[8],
+                forecast_deviation_score=round(
+                    float(row[9] or 0),
+                    2,
+                ),
+                generation_baseline_pct=row[10],
+                generation_deviation_score=round(
+                    float(row[11] or 0),
+                    2,
+                ),
+                risk_score=risk_score,
+                severity=classify_severity(risk_score),
+            )
+        )
+
+    return anomalies
 
 
 def main() -> None:
-    """Display current historical grid-risk signals."""
+    """Display current explainable historical grid-risk signals."""
 
     anomalies = load_grid_anomalies(
         limit=20,
     )
 
     print()
-    print("GRIDPULSE HISTORICAL GRID RISK INTELLIGENCE")
-    print("=" * 100)
+    print("GRIDPULSE EXPLAINABLE HISTORICAL GRID RISK")
+    print("=" * 115)
 
     if not anomalies:
         print("No authorities have enough historical observations for anomaly scoring.")
@@ -393,15 +470,24 @@ def main() -> None:
             abs(anomaly.forecast_error_pct) if anomaly.forecast_error_pct is not None else 0
         )
 
-        generation_gap = anomaly.generation_gap_pct if anomaly.generation_gap_pct is not None else 0
+        forecast_baseline = anomaly.forecast_baseline_pct or 0
+
+        generation_gap = anomaly.generation_gap_pct or 0
+
+        generation_baseline = anomaly.generation_baseline_pct or 0
 
         print(
             f"{anomaly.severity:10} "
             f"{anomaly.risk_score:6.1f}  "
             f"{anomaly.respondent:8} "
-            f"{anomaly.respondent_name[:32]:32} "
-            f"forecast error={forecast_error:7.2f}%  "
-            f"generation gap={generation_gap:7.2f}%"
+            f"{anomaly.respondent_name[:28]:28} "
+            f"history={anomaly.history_points:3d}  "
+            f"forecast={forecast_error:6.2f}%/"
+            f"{forecast_baseline:6.2f}% "
+            f"z={anomaly.forecast_deviation_score:4.2f}  "
+            f"generation={generation_gap:7.2f}%/"
+            f"{generation_baseline:7.2f}% "
+            f"z={anomaly.generation_deviation_score:4.2f}"
         )
 
 

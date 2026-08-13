@@ -1,4 +1,4 @@
-"""Tests for historical GridPulse grid-risk intelligence."""
+"""Tests for explainable historical GridPulse grid-risk intelligence."""
 
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,7 +16,8 @@ from gridpulse_intelligence.grid_anomaly import (
     ("score", "expected"),
     [
         (0.0, "NORMAL"),
-        (54.9, "NORMAL"),
+        (54.94, "NORMAL"),
+        (54.96, "ELEVATED"),
         (55.0, "ELEVATED"),
         (74.9, "ELEVATED"),
         (75.0, "HIGH"),
@@ -29,7 +30,7 @@ def test_classify_severity(
     score: float,
     expected: str,
 ) -> None:
-    """Risk-score thresholds should map correctly."""
+    """Displayed risk thresholds should map correctly."""
 
     assert classify_severity(score) == expected
 
@@ -68,14 +69,12 @@ def insert_history(
     latest_generation_gap_mwh: float,
     history_points: int = 30,
 ) -> None:
-    """Insert historical observations followed by one latest observation."""
+    """Insert historical observations and one latest observation."""
 
     start = datetime(
         2026,
         7,
         1,
-        0,
-        0,
     )
 
     rows: list[
@@ -95,7 +94,7 @@ def insert_history(
 
         forecast_error_pct = float(1 + (index % 3))
 
-        forecast = demand / (1 + (forecast_error_pct / 100))
+        forecast = demand / (1 + forecast_error_pct / 100)
 
         generation_gap_mwh = float(20 + (index % 3) * 10)
 
@@ -114,13 +113,12 @@ def insert_history(
             )
         )
 
-    latest_period = start + timedelta(
-        hours=history_points,
-    )
-
     rows.append(
         (
-            latest_period,
+            start
+            + timedelta(
+                hours=history_points,
+            ),
             respondent,
             respondent_name,
             1000.0,
@@ -142,7 +140,7 @@ def insert_history(
 def create_test_database(
     database_path: Path,
 ) -> None:
-    """Create authorities with stable and anomalous histories."""
+    """Create stable, anomalous, and insufficient-history examples."""
 
     connection = duckdb.connect(str(database_path))
 
@@ -150,35 +148,27 @@ def create_test_database(
         create_schema(connection)
 
         insert_history(
-            connection=connection,
-            respondent="STABLE",
-            respondent_name=("Stable Authority"),
-            latest_forecast_error_pct=2.0,
-            latest_generation_gap_mwh=30.0,
+            connection,
+            "STABLE",
+            "Stable Authority",
+            2.0,
+            30.0,
         )
 
         insert_history(
-            connection=connection,
-            respondent="SPIKE",
-            respondent_name=("Spike Authority"),
-            latest_forecast_error_pct=40.0,
-            latest_generation_gap_mwh=800.0,
+            connection,
+            "SPIKE",
+            "Spike Authority",
+            40.0,
+            800.0,
         )
 
         insert_history(
-            connection=connection,
-            respondent="ELEV",
-            respondent_name=("Elevated Authority"),
-            latest_forecast_error_pct=5.5,
-            latest_generation_gap_mwh=65.0,
-        )
-
-        insert_history(
-            connection=connection,
-            respondent="SHORT",
-            respondent_name=("Insufficient History Authority"),
-            latest_forecast_error_pct=80.0,
-            latest_generation_gap_mwh=900.0,
+            connection,
+            "SHORT",
+            "Short History",
+            80.0,
+            900.0,
             history_points=5,
         )
 
@@ -202,17 +192,27 @@ def test_historical_model_ranks_spike_first(
 
     assert anomalies
 
-    assert anomalies[0].respondent == "SPIKE"
+    spike = anomalies[0]
 
-    assert anomalies[0].risk_score >= 90
+    assert spike.respondent == "SPIKE"
+    assert spike.risk_score == pytest.approx(100.0)
+    assert spike.severity == "CRITICAL"
 
-    assert anomalies[0].severity == "CRITICAL"
+    assert spike.history_points == 30
+
+    assert spike.forecast_baseline_pct == pytest.approx(2.0)
+
+    assert spike.generation_baseline_pct == pytest.approx(3.0)
+
+    assert spike.forecast_deviation_score == pytest.approx(4.0)
+
+    assert spike.generation_deviation_score == pytest.approx(4.0)
 
 
-def test_stable_authority_remains_normal(
+def test_stable_authority_has_explainable_normal_score(
     tmp_path: Path,
 ) -> None:
-    """An observation close to its history should remain normal."""
+    """Stable observations should remain near their historical baseline."""
 
     database_path = tmp_path / "gridpulse.duckdb"
 
@@ -225,7 +225,17 @@ def test_stable_authority_remains_normal(
 
     stable = next(anomaly for anomaly in anomalies if anomaly.respondent == "STABLE")
 
-    assert stable.risk_score < 55
+    assert stable.history_points == 30
+
+    assert stable.forecast_baseline_pct == pytest.approx(2.0)
+
+    assert stable.generation_baseline_pct == pytest.approx(3.0)
+
+    assert stable.forecast_deviation_score == pytest.approx(0.0)
+
+    assert stable.generation_deviation_score == pytest.approx(0.0)
+
+    assert stable.risk_score == pytest.approx(0.0)
 
     assert stable.severity == "NORMAL"
 
@@ -249,10 +259,10 @@ def test_insufficient_history_is_excluded(
     assert "SHORT" not in respondents
 
 
-def test_results_use_latest_observation(
+def test_one_result_per_authority(
     tmp_path: Path,
 ) -> None:
-    """Each authority should return only its latest usable observation."""
+    """Only each authority's latest usable observation should be returned."""
 
     database_path = tmp_path / "gridpulse.duckdb"
 
@@ -281,7 +291,9 @@ def test_limit_is_respected(
 
     anomalies = load_grid_anomalies(
         database_path=database_path,
-        limit=2,
+        limit=1,
     )
 
-    assert len(anomalies) == 2
+    assert len(anomalies) == 1
+
+    assert anomalies[0].respondent == "SPIKE"

@@ -164,7 +164,7 @@ class PlatformHealthResponse(BaseModel):
 
 
 class GridAnomalyResponse(BaseModel):
-    """Peer-relative GridPulse grid risk observation."""
+    """Explainable historical GridPulse grid-risk observation."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -180,6 +180,14 @@ class GridAnomalyResponse(BaseModel):
 
     forecast_error_pct: float | None
     generation_gap_pct: float | None
+
+    history_points: int
+
+    forecast_baseline_pct: float | None
+    forecast_deviation_score: float
+
+    generation_baseline_pct: float | None
+    generation_deviation_score: float
 
     risk_score: float
     severity: str

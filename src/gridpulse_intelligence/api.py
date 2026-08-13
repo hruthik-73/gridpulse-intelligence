@@ -58,7 +58,8 @@ app = FastAPI(
     version="0.1.0",
     description=(
         "Serving layer for GridPulse electricity, weather, "
-        "EV infrastructure, platform health, and grid-risk intelligence."
+        "EV infrastructure, platform health, and historical "
+        "grid-risk intelligence."
     ),
 )
 
@@ -327,7 +328,7 @@ def grid_anomalies(
         ),
     ] = 20,
 ) -> list[GridAnomalyResponse]:
-    """Return peer-relative balancing-authority grid risk scores."""
+    """Return explainable historical grid-risk scores."""
 
     try:
         rows = load_grid_anomalies(
@@ -352,10 +353,12 @@ def grid_anomalies(
             demand_forecast_mwh=row.demand_forecast_mwh,
             forecast_error_pct=row.forecast_error_pct,
             generation_gap_pct=row.generation_gap_pct,
-            risk_score=round(
-                row.risk_score,
-                1,
-            ),
+            history_points=row.history_points,
+            forecast_baseline_pct=row.forecast_baseline_pct,
+            forecast_deviation_score=row.forecast_deviation_score,
+            generation_baseline_pct=row.generation_baseline_pct,
+            generation_deviation_score=row.generation_deviation_score,
+            risk_score=row.risk_score,
             severity=row.severity,
         )
         for row in rows
