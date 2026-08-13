@@ -442,6 +442,8 @@ class PipelineRunResponse(BaseModel):
 
     records_processed: int | None
 
+    throughput_records_per_second: float | None
+
     command: list[str]
 
 

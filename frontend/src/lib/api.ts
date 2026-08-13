@@ -528,6 +528,10 @@ export interface PipelineRun {
     | number
     | null;
 
+  throughput_records_per_second:
+    | number
+    | null;
+
   command: string[];
 }
 

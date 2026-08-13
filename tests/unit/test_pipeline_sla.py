@@ -54,6 +54,7 @@ def pipeline_run(
         duration_seconds=duration,
         exit_code=(0 if status == "SUCCEEDED" else (1 if status == "FAILED" else None)),
         records_processed=None,
+        throughput_records_per_second=None,
         command=("test",),
     )
 

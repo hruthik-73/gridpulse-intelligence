@@ -385,6 +385,7 @@ def pipeline_runs(
                 duration_seconds=run.duration_seconds,
                 exit_code=run.exit_code,
                 records_processed=run.records_processed,
+                throughput_records_per_second=(run.throughput_records_per_second),
                 command=list(run.command),
             )
             for run in runs

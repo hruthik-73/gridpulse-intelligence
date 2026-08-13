@@ -154,6 +154,26 @@ function formatDuration(
 }
 
 
+function formatThroughput(
+  value:
+    | number
+    | null,
+): string {
+  if (value === null) {
+    return "—";
+  }
+
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      maximumFractionDigits: 1,
+    },
+  ).format(
+    value,
+  )}/sec`;
+}
+
+
 function formatTime(
   value:
     | string

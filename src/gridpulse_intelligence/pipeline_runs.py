@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import uuid
@@ -15,6 +16,8 @@ from time import perf_counter
 from typing import Any
 
 DEFAULT_RUN_LOG_PATH = Path("data/observability/pipeline_runs.jsonl")
+
+RECORD_COUNT_PATTERN = re.compile(r"GRIDPULSE_RECORDS_PROCESSED=(\d+)")
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class PipelineRun:
     exit_code: int | None
 
     records_processed: int | None
+    throughput_records_per_second: float | None
 
     command: tuple[str, ...]
 
@@ -71,7 +75,6 @@ def _parse_datetime(
                 "+00:00",
             )
         )
-
     except ValueError:
         return None
 
@@ -79,6 +82,21 @@ def _parse_datetime(
         parsed = parsed.replace(tzinfo=UTC)
 
     return parsed.astimezone(UTC)
+
+
+def _throughput(
+    records_processed: int | None,
+    duration_seconds: float | None,
+) -> float | None:
+    """Calculate records per second when both inputs are reliable."""
+
+    if records_processed is None or duration_seconds is None or duration_seconds <= 0:
+        return None
+
+    return round(
+        records_processed / duration_seconds,
+        3,
+    )
 
 
 def append_pipeline_run(
@@ -101,6 +119,7 @@ def append_pipeline_run(
         "duration_seconds": run.duration_seconds,
         "exit_code": run.exit_code,
         "records_processed": run.records_processed,
+        "throughput_records_per_second": run.throughput_records_per_second,
         "command": list(run.command),
     }
 
@@ -175,6 +194,8 @@ def _pipeline_run_from_payload(
 
     records_value = payload.get("records_processed")
 
+    throughput_value = payload.get("throughput_records_per_second")
+
     duration_seconds = (
         float(duration_value)
         if isinstance(
@@ -202,6 +223,18 @@ def _pipeline_run_from_payload(
         else None
     )
 
+    throughput_records_per_second = (
+        float(throughput_value)
+        if isinstance(
+            throughput_value,
+            int | float,
+        )
+        else _throughput(
+            records_processed,
+            duration_seconds,
+        )
+    )
+
     return PipelineRun(
         run_id=run_id,
         stage=stage,
@@ -211,6 +244,7 @@ def _pipeline_run_from_payload(
         duration_seconds=duration_seconds,
         exit_code=exit_code,
         records_processed=records_processed,
+        throughput_records_per_second=(throughput_records_per_second),
         command=tuple(command),
     )
 
@@ -240,7 +274,6 @@ def load_pipeline_runs(
 
             try:
                 payload = json.loads(stripped)
-
             except json.JSONDecodeError:
                 continue
 
@@ -279,6 +312,19 @@ def last_successful_run(
     )
 
 
+def _extract_records_processed(
+    line: str,
+) -> int | None:
+    """Read one structured record-count marker from process output."""
+
+    match = RECORD_COUNT_PATTERN.search(line)
+
+    if match is None:
+        return None
+
+    return int(match.group(1))
+
+
 def execute_pipeline_command(
     *,
     stage: str,
@@ -304,6 +350,7 @@ def execute_pipeline_command(
             duration_seconds=None,
             exit_code=None,
             records_processed=None,
+            throughput_records_per_second=None,
             command=tuple(command),
         ),
         log_path,
@@ -311,13 +358,33 @@ def execute_pipeline_command(
 
     timer = perf_counter()
 
+    records_processed: int | None = None
+
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             list(command),
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
         )
 
-        exit_code = result.returncode
+        if process.stdout is None:
+            raise RuntimeError("Pipeline process stdout unavailable.")
+
+        for line in process.stdout:
+            print(
+                line,
+                end="",
+                flush=True,
+            )
+
+            detected_count = _extract_records_processed(line)
+
+            if detected_count is not None:
+                records_processed = detected_count
+
+        exit_code = process.wait()
 
     except KeyboardInterrupt:
         exit_code = 130
@@ -334,6 +401,11 @@ def execute_pipeline_command(
 
     status = "SUCCEEDED" if exit_code == 0 else "FAILED"
 
+    throughput = _throughput(
+        records_processed,
+        duration_seconds,
+    )
+
     append_pipeline_run(
         PipelineRun(
             run_id=run_id,
@@ -343,7 +415,8 @@ def execute_pipeline_command(
             finished_at=finished_at,
             duration_seconds=duration_seconds,
             exit_code=exit_code,
-            records_processed=None,
+            records_processed=records_processed,
+            throughput_records_per_second=(throughput),
             command=tuple(command),
         ),
         log_path,

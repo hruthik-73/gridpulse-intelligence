@@ -100,6 +100,7 @@ def pipeline_run(
         duration_seconds=(duration if status != "STARTED" else None),
         exit_code=(0 if status == "SUCCEEDED" else (1 if status == "FAILED" else None)),
         records_processed=None,
+        throughput_records_per_second=None,
         command=("test",),
     )
 
@@ -303,6 +304,7 @@ def test_stalled_execution_is_unhealthy() -> None:
         duration_seconds=None,
         exit_code=None,
         records_processed=None,
+        throughput_records_per_second=None,
         command=("test",),
     )
 
@@ -341,6 +343,7 @@ def test_overdue_success_is_degraded() -> None:
         duration_seconds=30.0,
         exit_code=0,
         records_processed=None,
+        throughput_records_per_second=None,
         command=("test",),
     )
 

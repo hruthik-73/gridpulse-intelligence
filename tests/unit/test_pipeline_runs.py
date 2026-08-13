@@ -41,6 +41,7 @@ def test_pipeline_run_round_trip(
         duration_seconds=60.0,
         exit_code=0,
         records_processed=1200,
+        throughput_records_per_second=20.0,
         command=(
             "python",
             "build_gold.py",
@@ -79,6 +80,7 @@ def test_latest_state_wins_for_run_id(
         duration_seconds=None,
         exit_code=None,
         records_processed=None,
+        throughput_records_per_second=None,
         command=(
             "python",
             "job.py",
@@ -101,6 +103,7 @@ def test_latest_state_wins_for_run_id(
         duration_seconds=120.0,
         exit_code=0,
         records_processed=None,
+        throughput_records_per_second=None,
         command=started.command,
     )
 
@@ -202,6 +205,7 @@ def test_last_successful_run() -> None:
         duration_seconds=60.0,
         exit_code=0,
         records_processed=None,
+        throughput_records_per_second=None,
         command=("job",),
     )
 
@@ -227,6 +231,7 @@ def test_last_successful_run() -> None:
         duration_seconds=60.0,
         exit_code=0,
         records_processed=None,
+        throughput_records_per_second=None,
         command=("job",),
     )
 
@@ -240,3 +245,31 @@ def test_last_successful_run() -> None:
         )
         == second
     )
+
+
+def test_structured_record_count_creates_throughput(
+    tmp_path: Path,
+) -> None:
+    """Structured process output should become throughput telemetry."""
+
+    log_path = tmp_path / "runs.jsonl"
+
+    exit_code = execute_pipeline_command(
+        stage="throughput-test",
+        command=[
+            "python",
+            "-c",
+            ("print('GRIDPULSE_RECORDS_PROCESSED=1000')"),
+        ],
+        log_path=log_path,
+    )
+
+    assert exit_code == 0
+
+    run = load_pipeline_runs(log_path)[0]
+
+    assert run.records_processed == 1000
+
+    assert run.throughput_records_per_second is not None
+
+    assert run.throughput_records_per_second > 0
