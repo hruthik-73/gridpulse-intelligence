@@ -147,19 +147,6 @@ app = FastAPI(
 )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_credentials=True,
-    allow_methods=[
-        "*",
-    ],
-    allow_headers=[
-        "*",
-    ],
-)
-
-
 metrics_app = make_asgi_app()
 
 app.mount(
@@ -210,6 +197,19 @@ async def portfolio_operational_snapshot(
             )
 
     return await call_next(request)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=[
+        "*",
+    ],
+    allow_headers=[
+        "*",
+    ],
+)
 
 
 def _route_label(
