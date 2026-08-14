@@ -1,5 +1,14 @@
 <div align="center">
 
+## Live Demo
+
+**Live Website:** https://gridpulse-intelligence.vercel.app
+
+**Public Analytics API:** https://gridpulse-api-hruthikgavva-5884s-projects.vercel.app
+
+The public portfolio serves a read-only analytical snapshot with retained operational evidence. The full Kafka, Spark, lakehouse, and observability environment remains reproducible locally.
+
+
 # GRIDPULSE INTELLIGENCE
 
 ### **Streaming Data. Grid Intelligence. Observable Engineering.**
