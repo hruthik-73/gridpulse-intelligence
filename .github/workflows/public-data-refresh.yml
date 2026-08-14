@@ -91,7 +91,7 @@ jobs:
         run: |
           uv run python \
             -m gridpulse_intelligence.ingest_eia_incremental \
-            --bootstrap-start "2026-07-01T00:00:00+00:00" \
+            --bootstrap-start "2026-07-01T00" \
             --safety-lag-hours 6 \
             --max-window-hours 10000 \
             --page-size 5000 \
