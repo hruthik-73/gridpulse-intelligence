@@ -648,29 +648,212 @@ jobs:
             --quiet \
             -r "$DEPLOY_DIR/requirements.txt"
 
+          VERCEL=1 \
           PYTHONPATH="$DEPLOY_DIR/src" \
-          GRIDPULSE_RUNTIME_MODE=portfolio \
-          "$SMOKE_VENV/bin/python" - <<'PY'
+          "$SMOKE_VENV/bin/python" - <<'PYTHON'
+          import os
+
           from fastapi.testclient import TestClient
 
           from index import app
 
 
+          def find_route(
+              endpoint_name: str,
+          ) -> str:
+              """Find a FastAPI route from its endpoint function."""
+
+              matches: list[str] = []
+
+              for route in app.routes:
+                  endpoint = getattr(
+                      route,
+                      "endpoint",
+                      None,
+                  )
+
+                  function_name = getattr(
+                      endpoint,
+                      "__name__",
+                      "",
+                  )
+
+                  route_name = getattr(
+                      route,
+                      "name",
+                      "",
+                  )
+
+                  route_path = getattr(
+                      route,
+                      "path",
+                      None,
+                  )
+
+                  if (
+                      route_path
+                      and (
+                          function_name
+                          == endpoint_name
+                          or route_name
+                          == endpoint_name
+                      )
+                  ):
+                      matches.append(
+                          route_path
+                      )
+
+              unique_matches = sorted(
+                  set(matches)
+              )
+
+              if not unique_matches:
+                  print()
+                  print(
+                      "Registered FastAPI routes:"
+                  )
+
+                  for route in app.routes:
+                      print(
+                          getattr(
+                              route,
+                              "path",
+                              "<no-path>",
+                          ),
+                          "->",
+                          getattr(
+                              route,
+                              "name",
+                              "<no-name>",
+                          ),
+                      )
+
+                  raise SystemExit(
+                      "Unable to discover endpoint "
+                      f"{endpoint_name!r}."
+                  )
+
+              return unique_matches[0]
+
+
           client = TestClient(app)
 
 
-          routes = (
-              "/api/v1/platform/status",
-              "/api/v1/platform/health",
+          status_route = find_route(
+              "platform_status"
+          )
+
+          health_route = find_route(
+              "platform_health"
+          )
+
+
+          print()
+          print(
+              "Discovered platform status route:",
+              status_route,
+          )
+
+          print(
+              "Discovered platform health route:",
+              health_route,
+          )
+
+
+          status_response = client.get(
+              status_route
+          )
+
+          print(
+              status_route,
+              status_response.status_code,
+          )
+
+
+          if status_response.status_code != 200:
+              raise SystemExit(
+                  "Platform status smoke test failed: "
+                  f"{status_response.text}"
+              )
+
+
+          status = status_response.json()
+
+
+          required_counts = {
+              "grid_hourly_rows": 500,
+              "balancing_authorities": 20,
+              "ev_cities": 1,
+              "weather_forecasts": 12,
+          }
+
+
+          for key, minimum in required_counts.items():
+              value = int(
+                  status.get(
+                      key,
+                      0,
+                  )
+              )
+
+              print(
+                  f"{key}: {value:,}"
+              )
+
+              if value < minimum:
+                  raise SystemExit(
+                      f"{key} is {value}; "
+                      f"expected at least {minimum}."
+                  )
+
+
+          health_response = client.get(
+              health_route
+          )
+
+          print(
+              health_route,
+              health_response.status_code,
+          )
+
+
+          if health_response.status_code != 200:
+              raise SystemExit(
+                  "Platform health endpoint failed: "
+                  f"{health_response.text}"
+              )
+
+
+          health = health_response.json()
+
+          warehouse = health.get(
+              "warehouse",
+              {},
+          )
+
+          if (
+              warehouse.get("status")
+              != "healthy"
+          ):
+              raise SystemExit(
+                  "Portfolio warehouse health "
+                  f"is not healthy: {health}"
+              )
+
+
+          operational_routes = (
               "/api/v1/platform/freshness",
               "/api/v1/platform/incidents",
               "/api/v1/platform/lineage",
+              "/api/v1/platform/runs?limit=5",
               "/api/v1/platform/data-quality",
           )
 
 
-          for route in routes:
-              response = client.get(route)
+          for route in operational_routes:
+              response = client.get(
+                  route
+              )
 
               print(
                   route,
@@ -684,40 +867,44 @@ jobs:
                   )
 
 
-          status = client.get(
-              "/api/v1/platform/status"
-          ).json()
+          github_env = os.environ[
+              "GITHUB_ENV"
+          ]
 
 
-          if status["grid_hourly_rows"] < 500:
-              raise SystemExit(
-                  "Smoke test grid row count too low."
+          with open(
+              github_env,
+              "a",
+              encoding="utf-8",
+          ) as handle:
+              handle.write(
+                  "GRIDPULSE_STATUS_ROUTE="
+                  f"{status_route}\n"
               )
 
-          if status["balancing_authorities"] < 20:
-              raise SystemExit(
-                  "Smoke test BA count too low."
+              handle.write(
+                  "GRIDPULSE_HEALTH_ROUTE="
+                  f"{health_route}\n"
               )
 
-          if status["ev_cities"] < 1:
-              raise SystemExit(
-                  "Smoke test EV mart is empty."
+              handle.write(
+                  "EXPECTED_GRID_ROWS="
+                  f"{status['grid_hourly_rows']}\n"
               )
 
-          if status["weather_forecasts"] < 12:
-              raise SystemExit(
-                  "Smoke test weather mart is too small."
+              handle.write(
+                  "EXPECTED_BA_ROWS="
+                  f"{status['balancing_authorities']}\n"
               )
 
+              handle.write(
+                  "EXPECTED_EV_CITIES="
+                  f"{status['ev_cities']}\n"
+              )
 
-          health = client.get(
-              "/api/v1/platform/health"
-          ).json()
-
-
-          if health["status"] != "healthy":
-              raise SystemExit(
-                  "Portfolio health smoke test failed."
+              handle.write(
+                  "EXPECTED_WEATHER_ROWS="
+                  f"{status['weather_forecasts']}\n"
               )
 
 
@@ -725,11 +912,11 @@ jobs:
           print(
               "Slim FastAPI bundle smoke test: PASS"
           )
-          PY
 
-      # ---------------------------------------------------------------
-      # VERCEL DEPLOYMENT
-      # ---------------------------------------------------------------
+          print(
+              "Expected production counts recorded."
+          )
+          PYTHON
 
       - name: Deploy refreshed API to Vercel
         run: |
@@ -754,44 +941,48 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Status route: $GRIDPULSE_STATUS_ROUTE"
+          echo "Health route: $GRIDPULSE_HEALTH_ROUTE"
+
           verified=0
 
           for attempt in $(seq 1 30); do
             echo
             echo "Production verification ${attempt}/30..."
 
-            if ! curl \
-              --fail \
-              --silent \
-              --show-error \
-              "$PUBLIC_API_URL/api/v1/platform/health" \
-              -o /tmp/gridpulse-health.json
-            then
-              sleep 10
-              continue
-            fi
+            STATUS_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/gridpulse-status.json \
+                --write-out "%{http_code}" \
+                "$PUBLIC_API_URL$GRIDPULSE_STATUS_ROUTE" \
+                || true
+            )"
 
-            if ! curl \
-              --fail \
-              --silent \
-              --show-error \
-              "$PUBLIC_API_URL/api/v1/platform/status" \
-              -o /tmp/gridpulse-status.json
-            then
-              sleep 10
-              continue
-            fi
+            HEALTH_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/gridpulse-health.json \
+                --write-out "%{http_code}" \
+                "$PUBLIC_API_URL$GRIDPULSE_HEALTH_ROUTE" \
+                || true
+            )"
 
-            if uv run python - <<'PY'
+            echo "Status HTTP: $STATUS_CODE"
+            echo "Health HTTP: $HEALTH_CODE"
+
+            if \
+              [ "$STATUS_CODE" = "200" ] \
+              && [ "$HEALTH_CODE" = "200" ]
+            then
+
+              if uv run python - <<'PYTHON'
           import json
+          import os
           from pathlib import Path
 
-
-          health = json.loads(
-              Path(
-                  "/tmp/gridpulse-health.json"
-              ).read_text()
-          )
 
           status = json.loads(
               Path(
@@ -799,90 +990,146 @@ jobs:
               ).read_text()
           )
 
+          health = json.loads(
+              Path(
+                  "/tmp/gridpulse-health.json"
+              ).read_text()
+          )
 
+
+          expected = {
+              "grid_hourly_rows": int(
+                  os.environ[
+                      "EXPECTED_GRID_ROWS"
+                  ]
+              ),
+              "balancing_authorities": int(
+                  os.environ[
+                      "EXPECTED_BA_ROWS"
+                  ]
+              ),
+              "ev_cities": int(
+                  os.environ[
+                      "EXPECTED_EV_CITIES"
+                  ]
+              ),
+              "weather_forecasts": int(
+                  os.environ[
+                      "EXPECTED_WEATHER_ROWS"
+                  ]
+              ),
+          }
+
+
+          print()
           print(
-              "Runtime mode:",
-              health.get("runtime_mode"),
+              "Expected freshly built counts:"
           )
 
-          print(
-              "Health:",
-              health.get("status"),
-          )
-
-          print(
-              "Grid rows:",
-              status.get("grid_hourly_rows"),
-          )
-
-          print(
-              "Balancing authorities:",
-              status.get("balancing_authorities"),
-          )
-
-          print(
-              "EV cities:",
-              status.get("ev_cities"),
-          )
-
-          print(
-              "Weather forecasts:",
-              status.get("weather_forecasts"),
-          )
-
-
-          assert health.get("status") == "healthy"
-
-          assert (
-              health.get("runtime_mode")
-              == "portfolio"
-          )
-
-          assert (
-              status.get(
-                  "grid_hourly_rows",
-                  0,
+          for key, value in expected.items():
+              print(
+                  f"  {key}: {value:,}"
               )
-              >= 500
+
+
+          print()
+          print(
+              "Production counts:"
           )
 
-          assert (
-              status.get(
-                  "balancing_authorities",
-                  0,
+          for key in expected:
+              actual = int(
+                  status.get(
+                      key,
+                      -1,
+                  )
               )
-              >= 20
+
+              print(
+                  f"  {key}: {actual:,}"
+              )
+
+              if actual != expected[key]:
+                  raise SystemExit(
+                      f"{key} has not converged yet: "
+                      f"production={actual}, "
+                      f"expected={expected[key]}"
+                  )
+
+
+          warehouse = health.get(
+              "warehouse",
+              {},
           )
 
-          assert (
-              status.get(
-                  "ev_cities",
-                  0,
-              )
-              >= 1
-          )
 
-          assert (
-              status.get(
-                  "weather_forecasts",
-                  0,
+          if (
+              warehouse.get("status")
+              != "healthy"
+          ):
+              raise SystemExit(
+                  "Production warehouse health "
+                  f"is not healthy: {health}"
               )
-              >= 12
+
+
+          print()
+          print(
+              "Fresh deployment counts match "
+              "the CI-built snapshot."
           )
-          PY
-            then
-              verified=1
-              break
+          PYTHON
+              then
+                verified=1
+                break
+              fi
             fi
 
             sleep 10
           done
 
+
           if [ "$verified" -ne 1 ]; then
             echo
-            echo "Production API did not converge to the new deployment."
+            echo "Production API did not converge to the refreshed snapshot."
+
+            echo
+            echo "Last status response:"
+            cat /tmp/gridpulse-status.json 2>/dev/null || true
+
+            echo
+            echo "Last health response:"
+            cat /tmp/gridpulse-health.json 2>/dev/null || true
+
             exit 1
           fi
+
+
+          echo
+          echo "Verify public operational routes..."
+
+          for route in \
+            "/api/v1/platform/freshness" \
+            "/api/v1/platform/incidents" \
+            "/api/v1/platform/lineage" \
+            "/api/v1/platform/data-quality"
+          do
+            HTTP_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /dev/null \
+                --write-out "%{http_code}" \
+                "$PUBLIC_API_URL$route"
+            )"
+
+            echo "$route -> $HTTP_CODE"
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              exit 1
+            fi
+          done
+
 
           echo
           echo "=========================================="
