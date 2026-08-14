@@ -111,7 +111,7 @@ jobs:
           uv run python \
             -m gridpulse_intelligence.ingest_afdc \
             --state OH \
-            --limit 2000
+            --limit 200
 
       - name: Rebuild Silver Gold and dbt analytics
         run: |
