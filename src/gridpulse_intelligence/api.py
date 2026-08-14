@@ -12,6 +12,7 @@ from typing import Annotated, Any, cast
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, make_asgi_app
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, Response
 
 from gridpulse_intelligence.api_models import (
@@ -40,6 +41,11 @@ from gridpulse_intelligence.api_models import (
 from gridpulse_intelligence.api_repository import (
     GridPulseRepository,
     GridPulseRepositoryError,
+)
+from gridpulse_intelligence.api_security import (
+    TRUSTED_HOSTS,
+    PortfolioReadOnlyMiddleware,
+    SecurityHeadersMiddleware,
 )
 from gridpulse_intelligence.data_quality import (
     build_data_quality_snapshot,
@@ -209,6 +215,20 @@ app.add_middleware(
     allow_headers=[
         "*",
     ],
+)
+
+
+app.add_middleware(
+    PortfolioReadOnlyMiddleware,
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=list(TRUSTED_HOSTS),
+)
+
+app.add_middleware(
+    SecurityHeadersMiddleware,
 )
 
 
