@@ -1,0 +1,410 @@
+name: GridPulse Public Data Refresh
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # Every 4 hours, away from the top of the hour.
+    - cron: "23 */4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gridpulse-public-data-refresh
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+
+  EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+  AFDC_API_KEY: ${{ secrets.AFDC_API_KEY }}
+  NOAA_USER_AGENT: ${{ secrets.NOAA_USER_AGENT }}
+
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+  STORAGE_BACKEND: local
+  DATA_ROOT: data
+  APP_ENV: ci
+  LOG_LEVEL: INFO
+
+  SPARK_LOCAL_IP: 127.0.0.1
+
+jobs:
+  refresh:
+    name: Refresh public analytics
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.3"
+          enable-cache: true
+
+      - name: Restore GridPulse analytical state
+        uses: actions/cache@v5
+        with:
+          path: |
+            data/raw
+            data/processed
+            data/checkpoints
+            data/quarantine
+            data/warehouse
+          key: gridpulse-data-v1-${{ github.run_id }}
+          restore-keys: |
+            gridpulse-data-v1-
+
+      - name: Prepare data directories
+        run: |
+          mkdir -p \
+            data/raw \
+            data/processed \
+            data/checkpoints \
+            data/quarantine \
+            data/warehouse \
+            data/observability
+
+      - name: Install GridPulse
+        run: |
+          uv sync --locked
+
+      - name: Refresh EIA electricity data
+        run: |
+          uv run python \
+            -m gridpulse_intelligence.ingest_eia_incremental \
+            --bootstrap-start "2026-07-01T00:00:00+00:00" \
+            --safety-lag-hours 6 \
+            --max-window-hours 10000 \
+            --page-size 5000 \
+            --watermark-path data/checkpoints/eia_watermark.json
+
+      - name: Refresh NWS weather data
+        run: |
+          uv run python \
+            -m gridpulse_intelligence.ingest_nws \
+            --latitude 41.4993 \
+            --longitude -81.6944 \
+            --hours 48 \
+            --location-name "Cleveland, Ohio"
+
+      - name: Refresh AFDC EV infrastructure
+        run: |
+          uv run python \
+            -m gridpulse_intelligence.ingest_afdc \
+            --state OH \
+            --limit 2000
+
+      - name: Rebuild Silver Gold and dbt analytics
+        run: |
+          make analytics
+
+      - name: Build public DuckDB snapshot
+        run: |
+          uv run python scripts/build_portfolio_snapshot.py
+
+      - name: Validate public snapshot
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          import duckdb
+
+          snapshot = Path(
+              "src/gridpulse_intelligence/assets/"
+              "gridpulse_portfolio.duckdb"
+          )
+
+          if not snapshot.exists():
+              raise SystemExit("Portfolio snapshot was not created.")
+
+          connection = duckdb.connect(
+              str(snapshot),
+              read_only=True,
+          )
+
+          try:
+              required = {
+                  "mart_grid_hourly",
+                  "mart_balancing_authority_performance",
+                  "mart_ev_city_rankings",
+                  "mart_weather_forecast",
+              }
+
+              tables = {
+                  row[0]
+                  for row in connection.execute(
+                      """
+                      select table_name
+                      from information_schema.tables
+                      where table_schema = 'analytics'
+                      """
+                  ).fetchall()
+              }
+
+              missing = required - tables
+
+              if missing:
+                  raise SystemExit(
+                      f"Missing public analytics tables: "
+                      f"{sorted(missing)}"
+                  )
+
+              for table in sorted(required):
+                  count = connection.execute(
+                      f"""
+                      select count(*)
+                      from analytics.{table}
+                      """
+                  ).fetchone()[0]
+
+                  print(
+                      f"{table}: {count} rows"
+                  )
+
+                  if count <= 0:
+                      raise SystemExit(
+                          f"{table} is unexpectedly empty."
+                      )
+
+          finally:
+              connection.close()
+
+          print(
+              "✓ Public DuckDB snapshot validated"
+          )
+          PY
+
+      - name: Create slim Vercel API bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="$RUNNER_TEMP/gridpulse-api-deploy"
+
+          rm -rf "$DEPLOY_DIR"
+
+          mkdir -p \
+            "$DEPLOY_DIR/src"
+
+          rsync -a \
+            --exclude="__pycache__" \
+            --exclude="*.pyc" \
+            src/gridpulse_intelligence/ \
+            "$DEPLOY_DIR/src/gridpulse_intelligence/"
+
+          cp \
+            src/index.py \
+            "$DEPLOY_DIR/src/index.py"
+
+          cp \
+            vercel.json \
+            "$DEPLOY_DIR/vercel.json"
+
+          if [ -f .python-version ]; then
+              cp \
+                .python-version \
+                "$DEPLOY_DIR/.python-version"
+          else
+              printf '3.12\n' \
+                > "$DEPLOY_DIR/.python-version"
+          fi
+
+          uv pip freeze \
+            | grep -Ei \
+              '^(duckdb|fastapi|httpx|pydantic|pydantic-settings|tenacity|structlog|pyyaml|confluent-kafka|prometheus-client)==' \
+            > "$DEPLOY_DIR/requirements.txt"
+
+          echo
+          echo "Slim runtime requirements:"
+          cat "$DEPLOY_DIR/requirements.txt"
+
+          if [ ! -s "$DEPLOY_DIR/requirements.txt" ]; then
+              echo "ERROR: Runtime requirements were not generated."
+              exit 1
+          fi
+
+          echo "deploy_dir=$DEPLOY_DIR" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test slim API bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="${{ steps.bundle.outputs.deploy_dir }}"
+          TEST_VENV="$RUNNER_TEMP/gridpulse-api-smoke"
+
+          python -m venv "$TEST_VENV"
+
+          "$TEST_VENV/bin/python" \
+            -m pip install \
+            --quiet \
+            --upgrade pip
+
+          "$TEST_VENV/bin/python" \
+            -m pip install \
+            --quiet \
+            -r "$DEPLOY_DIR/requirements.txt"
+
+          cd "$DEPLOY_DIR"
+
+          VERCEL=1 \
+          GRIDPULSE_CORS_ORIGINS="https://gridpulse-intelligence.vercel.app" \
+          "$TEST_VENV/bin/python" - <<'PY'
+          from fastapi.testclient import TestClient
+
+          from src.index import app
+
+          client = TestClient(app)
+
+          response = client.get(
+              "/api/v1/platform/health",
+              headers={
+                  "Host": (
+                      "gridpulse-api-"
+                      "hruthikgavva-5884s-projects."
+                      "vercel.app"
+                  ),
+              },
+          )
+
+          print(
+              "Health:",
+              response.status_code,
+          )
+
+          if response.status_code != 200:
+              print(
+                  response.text
+              )
+
+              raise SystemExit(
+                  "Slim API health test failed."
+              )
+
+          body = response.json()
+
+          if body.get("status") != "healthy":
+              raise SystemExit(
+                  f"Unexpected health response: {body}"
+              )
+
+          if body.get("runtime_mode") != "portfolio":
+              raise SystemExit(
+                  f"Unexpected runtime mode: {body}"
+              )
+
+          print(
+              "✓ Slim portfolio API passed smoke test"
+          )
+          PY
+
+      - name: Deploy refreshed API to Vercel
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="${{ steps.bundle.outputs.deploy_dir }}"
+
+          DEPLOYMENT_URL="$(
+            npx --yes vercel@latest deploy \
+              "$DEPLOY_DIR" \
+              --prod \
+              --yes \
+              --token "$VERCEL_TOKEN"
+          )"
+
+          echo "Deployment: $DEPLOYMENT_URL"
+
+          echo "deployment_url=$DEPLOYMENT_URL" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Verify production GridPulse API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_URL="https://gridpulse-api-hruthikgavva-5884s-projects.vercel.app"
+
+          SUCCESS=0
+
+          for ATTEMPT in 1 2 3 4 5 6 7 8 9 10
+          do
+              echo "Health check attempt $ATTEMPT"
+
+              HTTP_CODE="$(
+                curl \
+                  --silent \
+                  --show-error \
+                  --output /tmp/gridpulse-health.json \
+                  --write-out "%{http_code}" \
+                  "$API_URL/api/v1/platform/health" \
+                  || true
+              )"
+
+              if [ "$HTTP_CODE" = "200" ]; then
+                  SUCCESS=1
+                  break
+              fi
+
+              sleep 6
+          done
+
+          if [ "$SUCCESS" != "1" ]; then
+              echo "ERROR: Production API did not become healthy."
+              exit 1
+          fi
+
+          cat /tmp/gridpulse-health.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  "/tmp/gridpulse-health.json"
+              ).read_text()
+          )
+
+          assert payload["status"] == "healthy"
+          assert payload["runtime_mode"] == "portfolio"
+
+          print(
+              "✓ Production GridPulse API healthy"
+          )
+          PY
+
+      - name: Refresh summary
+        if: always()
+        run: |
+          {
+            echo "## GridPulse Public Refresh"
+            echo
+            echo "- Trigger: \`${{ github.event_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Analytics snapshot rebuilt"
+            echo "- EIA / NWS / AFDC refresh attempted"
+            echo "- Slim Vercel API deployment performed only after validation"
+          } >> "$GITHUB_STEP_SUMMARY"
