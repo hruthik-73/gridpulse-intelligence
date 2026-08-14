@@ -1,11 +1,9 @@
 name: GridPulse Public Data Refresh
 
 on:
-  workflow_dispatch:
-
   schedule:
-    # Every 4 hours, away from the top of the hour.
     - cron: "23 */4 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,39 +12,42 @@ concurrency:
   group: gridpulse-public-data-refresh
   cancel-in-progress: false
 
-env:
-  PYTHON_VERSION: "3.12"
-
-  EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
-  AFDC_API_KEY: ${{ secrets.AFDC_API_KEY }}
-  NOAA_USER_AGENT: ${{ secrets.NOAA_USER_AGENT }}
-
-  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-  VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-
-  STORAGE_BACKEND: local
-  DATA_ROOT: data
-  APP_ENV: ci
-  LOG_LEVEL: INFO
-
-  SPARK_LOCAL_IP: 127.0.0.1
-
 jobs:
   refresh:
     name: Refresh public analytics
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
-    timeout-minutes: 55
+    env:
+      PYTHON_VERSION: "3.12"
+
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+      AFDC_API_KEY: ${{ secrets.AFDC_API_KEY }}
+      NOAA_USER_AGENT: ${{ secrets.NOAA_USER_AGENT }}
+
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+
+      STORAGE_BACKEND: local
+      DATA_ROOT: data
+      APP_ENV: ci
+      LOG_LEVEL: INFO
+
+      SPARK_LOCAL_IP: 127.0.0.1
+
+      PUBLIC_API_URL: https://gridpulse-api-hruthikgavva-5884s-projects.vercel.app
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.12"
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -55,120 +56,456 @@ jobs:
           java-version: "17"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        uses: astral-sh/setup-uv@v9
         with:
-          version: "0.12.3"
           enable-cache: true
-
-      - name: Restore GridPulse analytical state
-        uses: actions/cache@v5
-        with:
-          path: |
-            data/raw
-            data/processed
-            data/checkpoints
-            data/quarantine
-            data/warehouse
-          key: gridpulse-data-v1-${{ github.run_id }}
-          restore-keys: |
-            gridpulse-data-v1-
-
-      - name: Prepare data directories
-        run: |
-          mkdir -p \
-            data/raw \
-            data/processed \
-            data/checkpoints \
-            data/quarantine \
-            data/warehouse \
-            data/observability
 
       - name: Install GridPulse
         run: |
-          uv sync --locked
+          set -euo pipefail
 
-      - name: Refresh EIA electricity data
-        run: |
-          uv run python \
-            -m gridpulse_intelligence.ingest_eia_incremental \
-            --bootstrap-start "2026-07-01T00" \
-            --safety-lag-hours 6 \
-            --max-window-hours 10000 \
-            --page-size 5000 \
-            --watermark-path data/checkpoints/eia_watermark.json
+          uv sync \
+            --frozen \
+            --all-groups
 
-      - name: Refresh NWS weather data
+          uv run python --version
+          uv run python -c "import pyspark; print('PySpark', pyspark.__version__)"
+
+      # ---------------------------------------------------------------
+      # This workflow is deliberately stateless.
+      #
+      # GitHub Actions cache is allowed for dependency acceleration,
+      # but analytical correctness never depends on restored application
+      # data from a previous runner.
+      # ---------------------------------------------------------------
+
+      - name: Prepare clean analytical workspace
         run: |
-          uv run python \
-            -m gridpulse_intelligence.ingest_nws \
+          set -euo pipefail
+
+          rm -rf \
+            data/raw/streaming \
+            data/processed/silver \
+            data/processed/gold \
+            data/quarantine \
+            data/checkpoints \
+            data/warehouse \
+            data/observability
+
+          mkdir -p \
+            data/raw/streaming \
+            data/processed \
+            data/quarantine \
+            data/checkpoints \
+            data/warehouse \
+            data/observability
+
+          echo "Clean analytical workspace prepared."
+
+      # ---------------------------------------------------------------
+      # EPHEMERAL KAFKA
+      # ---------------------------------------------------------------
+
+      - name: Start ephemeral Kafka
+        run: |
+          set -euo pipefail
+
+          docker compose \
+            -f infrastructure/docker/docker-compose.kafka.yml \
+            up -d
+
+          echo "Waiting for Kafka..."
+
+          ready=0
+
+          for attempt in $(seq 1 60); do
+            if docker exec gridpulse-kafka \
+              /opt/kafka/bin/kafka-topics.sh \
+              --bootstrap-server localhost:9092 \
+              --list >/dev/null 2>&1
+            then
+              ready=1
+              echo "Kafka is ready."
+              break
+            fi
+
+            echo "Kafka attempt ${attempt}/60..."
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "Kafka did not become ready."
+            docker compose \
+              -f infrastructure/docker/docker-compose.kafka.yml \
+              logs
+            exit 1
+          fi
+
+          docker compose \
+            -f infrastructure/docker/docker-compose.kafka.yml \
+            ps
+
+      - name: Create GridPulse Kafka topics
+        run: |
+          set -euo pipefail
+
+          topics=(
+            "gridpulse.eia.region-data.v1"
+            "gridpulse.nws.forecast.v1"
+            "gridpulse.afdc.ev-stations.v1"
+            "gridpulse.dead-letter.v1"
+          )
+
+          for topic in "${topics[@]}"; do
+            docker exec gridpulse-kafka \
+              /opt/kafka/bin/kafka-topics.sh \
+              --bootstrap-server localhost:9092 \
+              --create \
+              --if-not-exists \
+              --topic "$topic" \
+              --partitions 3 \
+              --replication-factor 1
+          done
+
+          echo
+          echo "GridPulse topics:"
+          docker exec gridpulse-kafka \
+            /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 \
+            --list
+
+      # ---------------------------------------------------------------
+      # EIA HISTORY
+      #
+      # Public CI rebuilds a bounded rolling analytical window instead
+      # of pretending GitHub cache is durable storage.
+      #
+      # replay_eia remains replay=true by design.
+      #
+      # Flag names are discovered from the module itself so this
+      # workflow cannot drift from its argparse interface.
+      # ---------------------------------------------------------------
+
+      - name: Replay rolling EIA history through Kafka
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HELP="$(
+            uv run python \
+              -m gridpulse_intelligence.replay_eia \
+              --help 2>&1
+          )"
+
+          START_FLAG="$(
+            printf '%s\n' "$HELP" |
+              grep -oE -- '--[A-Za-z0-9-]*start[A-Za-z0-9-]*' |
+              head -1 || true
+          )"
+
+          END_FLAG="$(
+            printf '%s\n' "$HELP" |
+              grep -oE -- '--[A-Za-z0-9-]*end[A-Za-z0-9-]*' |
+              head -1 || true
+          )"
+
+          SPEED_FLAG="$(
+            printf '%s\n' "$HELP" |
+              grep -oE -- '--[A-Za-z0-9-]*speed[A-Za-z0-9-]*' |
+              head -1 || true
+          )"
+
+          if [ -z "$START_FLAG" ] || \
+             [ -z "$END_FLAG" ] || \
+             [ -z "$SPEED_FLAG" ]; then
+
+            echo "Unable to discover replay_eia CLI flags."
+            echo
+            echo "$HELP"
+            exit 1
+          fi
+
+          START_HOUR="$(
+            date -u \
+              -d '14 days ago' \
+              '+%Y-%m-%dT%H'
+          )"
+
+          END_HOUR="$(
+            date -u \
+              -d '3 hours ago' \
+              '+%Y-%m-%dT%H'
+          )"
+
+          echo "EIA replay window:"
+          echo "  Start: $START_HOUR"
+          echo "  End:   $END_HOUR"
+          echo
+          echo "Replay semantics: replay=true"
+
+          timeout 15m \
+            uv run python \
+            -m gridpulse_intelligence.replay_eia \
+            "$START_FLAG" "$START_HOUR" \
+            "$END_FLAG" "$END_HOUR" \
+            "$SPEED_FLAG" "36000"
+
+      # ---------------------------------------------------------------
+      # CURRENT SOURCE EVENTS
+      #
+      # These are normal non-replay source events and fill the current
+      # edge of the analytical window.
+      # ---------------------------------------------------------------
+
+      - name: Publish current EIA NWS and AFDC events
+        run: |
+          set -euo pipefail
+
+          timeout 10m \
+            uv run python \
+            -m gridpulse_intelligence.publish_sources \
+            --source all \
+            --eia-limit 200 \
+            --weather-hours 48 \
             --latitude 41.4993 \
             --longitude -81.6944 \
-            --hours 48 \
-            --location-name "Cleveland, Ohio"
-
-      - name: Refresh AFDC EV infrastructure
-        run: |
-          uv run python \
-            -m gridpulse_intelligence.ingest_afdc \
             --state OH \
-            --limit 200
+            --ev-limit 200
 
-      - name: Rebuild Silver Gold and dbt analytics
+      - name: Verify source events reached Kafka
         run: |
-          make analytics
+          set -euo pipefail
+
+          uv run python - <<'PY'
+          from confluent_kafka import Consumer, TopicPartition
+
+
+          topics = (
+              "gridpulse.eia.region-data.v1",
+              "gridpulse.nws.forecast.v1",
+              "gridpulse.afdc.ev-stations.v1",
+          )
+
+
+          consumer = Consumer(
+              {
+                  "bootstrap.servers": "localhost:9092",
+                  "group.id": "gridpulse-ci-verification",
+                  "enable.auto.commit": False,
+              }
+          )
+
+
+          try:
+              for topic in topics:
+                  metadata = consumer.list_topics(
+                      topic=topic,
+                      timeout=10,
+                  )
+
+                  topic_metadata = metadata.topics.get(topic)
+
+                  if topic_metadata is None:
+                      raise SystemExit(
+                          f"Kafka topic missing: {topic}"
+                      )
+
+                  total = 0
+
+                  for partition_id in topic_metadata.partitions:
+                      low, high = consumer.get_watermark_offsets(
+                          TopicPartition(
+                              topic,
+                              partition_id,
+                          ),
+                          timeout=10,
+                      )
+
+                      total += high - low
+
+                  print(
+                      f"{topic}: {total:,} event(s)"
+                  )
+
+                  if total <= 0:
+                      raise SystemExit(
+                          f"No events found in {topic}"
+                      )
+
+          finally:
+              consumer.close()
+
+
+          print()
+          print("Kafka source verification: PASS")
+          PY
+
+      # ---------------------------------------------------------------
+      # KAFKA -> SPARK -> BRONZE
+      #
+      # PySpark 4.2.0 requires the matching external Kafka connector.
+      # ---------------------------------------------------------------
+
+      - name: Stream Kafka events into Bronze
+        env:
+          PYSPARK_SUBMIT_ARGS: >-
+            --packages
+            org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0
+            pyspark-shell
+        run: |
+          set -euo pipefail
+
+          timeout 20m \
+            uv run python \
+            -m gridpulse_intelligence.pipeline_runs \
+            --stage kafka_to_bronze \
+            -- \
+            uv run python \
+            pipelines/streaming/kafka_to_bronze.py \
+            --bootstrap-servers localhost:9092 \
+            --topics \
+            "gridpulse.eia.region-data.v1,gridpulse.nws.forecast.v1,gridpulse.afdc.ev-stations.v1"
+
+      - name: Validate Bronze output
+        run: |
+          set -euo pipefail
+
+          BRONZE="data/raw/streaming/bronze_events"
+
+          test -d "$BRONZE"
+
+          PARQUET_COUNT="$(
+            find "$BRONZE" \
+              -type f \
+              -name '*.parquet' |
+              wc -l |
+              tr -d ' '
+          )"
+
+          echo "Bronze parquet files: $PARQUET_COUNT"
+
+          if [ "$PARQUET_COUNT" -lt 1 ]; then
+            echo "Bronze contains no parquet data."
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # SILVER
+      # ---------------------------------------------------------------
+
+      - name: Build Silver datasets
+        run: |
+          set -euo pipefail
+
+          timeout 15m \
+            uv run python \
+            -m gridpulse_intelligence.pipeline_runs \
+            --stage bronze_to_silver \
+            -- \
+            uv run python \
+            pipelines/streaming/bronze_to_silver.py
+
+      # ---------------------------------------------------------------
+      # GOLD
+      # ---------------------------------------------------------------
+
+      - name: Build Gold marts
+        run: |
+          set -euo pipefail
+
+          timeout 15m \
+            uv run python \
+            -m gridpulse_intelligence.pipeline_runs \
+            --stage gold \
+            -- \
+            uv run python \
+            pipelines/analytics/build_gold.py
+
+      # ---------------------------------------------------------------
+      # DBT / DUCKDB
+      # ---------------------------------------------------------------
+
+      - name: Build dbt analytics warehouse
+        run: |
+          set -euo pipefail
+
+          timeout 15m \
+            uv run dbt build \
+            --project-dir analytics/dbt \
+            --profiles-dir analytics/dbt
+
+          test -f data/warehouse/gridpulse.duckdb
+
+      # ---------------------------------------------------------------
+      # PUBLIC ANALYTICS SNAPSHOT
+      # ---------------------------------------------------------------
 
       - name: Build public DuckDB snapshot
         run: |
-          uv run python scripts/build_portfolio_snapshot.py
+          set -euo pipefail
 
-      - name: Validate public snapshot
+          uv run python \
+            scripts/build_portfolio_snapshot.py
+
+          test -f \
+            src/gridpulse_intelligence/assets/gridpulse_portfolio.duckdb
+
+      # ---------------------------------------------------------------
+      # PUBLIC OPERATIONAL EVIDENCE
+      #
+      # Built after the real CI engineering run so freshness, incidents,
+      # lineage, execution telemetry and data quality correspond to this
+      # validated run rather than an old retained snapshot.
+      # ---------------------------------------------------------------
+
+      - name: Build public operational snapshot
         run: |
+          set -euo pipefail
+
+          uv run python \
+            scripts/build_portfolio_operational_snapshot.py
+
+          test -f \
+            src/gridpulse_intelligence/assets/gridpulse_operational_snapshot.json
+
+      - name: Validate public analytical snapshot
+        run: |
+          set -euo pipefail
+
           uv run python - <<'PY'
           from pathlib import Path
 
           import duckdb
 
-          snapshot = Path(
+
+          database = Path(
               "src/gridpulse_intelligence/assets/"
               "gridpulse_portfolio.duckdb"
           )
 
-          if not snapshot.exists():
-              raise SystemExit("Portfolio snapshot was not created.")
+
+          if not database.exists():
+              raise SystemExit(
+                  "Public DuckDB snapshot does not exist."
+              )
+
+
+          minimums = {
+              "mart_grid_hourly": 500,
+              "mart_balancing_authority_performance": 20,
+              "mart_ev_city_rankings": 1,
+              "mart_weather_forecast": 12,
+          }
+
 
           connection = duckdb.connect(
-              str(snapshot),
+              str(database),
               read_only=True,
           )
 
+
           try:
-              required = {
-                  "mart_grid_hourly",
-                  "mart_balancing_authority_performance",
-                  "mart_ev_city_rankings",
-                  "mart_weather_forecast",
-              }
-
-              tables = {
-                  row[0]
-                  for row in connection.execute(
-                      """
-                      select table_name
-                      from information_schema.tables
-                      where table_schema = 'analytics'
-                      """
-                  ).fetchall()
-              }
-
-              missing = required - tables
-
-              if missing:
-                  raise SystemExit(
-                      f"Missing public analytics tables: "
-                      f"{sorted(missing)}"
-                  )
-
-              for table in sorted(required):
+              for table, minimum in minimums.items():
                   count = connection.execute(
                       f"""
                       select count(*)
@@ -177,40 +514,67 @@ jobs:
                   ).fetchone()[0]
 
                   print(
-                      f"{table}: {count} rows"
+                      f"{table}: {count:,} rows"
                   )
 
-                  if count <= 0:
+                  if count < minimum:
                       raise SystemExit(
-                          f"{table} is unexpectedly empty."
+                          f"{table} has {count} rows; "
+                          f"expected at least {minimum}."
                       )
 
           finally:
               connection.close()
 
+
+          size_mb = (
+              database.stat().st_size
+              / 1024
+              / 1024
+          )
+
+
           print(
-              "✓ Public DuckDB snapshot validated"
+              f"Public snapshot size: "
+              f"{size_mb:.2f} MB"
+          )
+
+          if size_mb >= 100:
+              raise SystemExit(
+                  "Public snapshot unexpectedly exceeds "
+                  "100 MB."
+              )
+
+
+          print()
+          print(
+              "Public analytical snapshot: PASS"
           )
           PY
 
+      # ---------------------------------------------------------------
+      # SLIM VERCEL BUNDLE
+      #
+      # Spark, dbt and the engineering environment stay in CI/local.
+      # Only the read-only FastAPI serving layer and generated snapshots
+      # are deployed.
+      # ---------------------------------------------------------------
+
       - name: Create slim Vercel API bundle
-        id: bundle
-        shell: bash
         run: |
           set -euo pipefail
 
-          DEPLOY_DIR="$RUNNER_TEMP/gridpulse-api-deploy"
+          DEPLOY_DIR="$RUNNER_TEMP/gridpulse-vercel-api"
 
           rm -rf "$DEPLOY_DIR"
 
           mkdir -p \
-            "$DEPLOY_DIR/src"
+            "$DEPLOY_DIR/src" \
+            "$DEPLOY_DIR/.vercel"
 
-          rsync -a \
-            --exclude="__pycache__" \
-            --exclude="*.pyc" \
-            src/gridpulse_intelligence/ \
-            "$DEPLOY_DIR/src/gridpulse_intelligence/"
+          cp -R \
+            src/gridpulse_intelligence \
+            "$DEPLOY_DIR/src/"
 
           cp \
             src/index.py \
@@ -220,191 +584,328 @@ jobs:
             vercel.json \
             "$DEPLOY_DIR/vercel.json"
 
-          if [ -f .python-version ]; then
-              cp \
-                .python-version \
-                "$DEPLOY_DIR/.python-version"
-          else
-              printf '3.12\n' \
-                > "$DEPLOY_DIR/.python-version"
-          fi
+          find "$DEPLOY_DIR" \
+            -type d \
+            -name '__pycache__' \
+            -prune \
+            -exec rm -rf '{}' +
 
-          uv pip freeze \
-            | grep -Ei \
-              '^(duckdb|fastapi|httpx|pydantic|pydantic-settings|tenacity|structlog|pyyaml|confluent-kafka|prometheus-client)==' \
-            > "$DEPLOY_DIR/requirements.txt"
+          uv run python - <<'PY' > "$DEPLOY_DIR/requirements.txt"
+          from importlib.metadata import version
+
+
+          packages = (
+              "duckdb",
+              "fastapi",
+              "httpx",
+              "pydantic",
+              "pydantic-settings",
+              "tenacity",
+              "structlog",
+              "PyYAML",
+              "confluent-kafka",
+              "prometheus-client",
+          )
+
+
+          for package in packages:
+              print(
+                  f"{package}=={version(package)}"
+              )
+          PY
+
+          cat > "$DEPLOY_DIR/.vercel/project.json" <<JSON
+          {
+            "orgId": "${VERCEL_ORG_ID}",
+            "projectId": "${VERCEL_PROJECT_ID}"
+          }
+          JSON
+
+          echo "DEPLOY_DIR=$DEPLOY_DIR" \
+            >> "$GITHUB_ENV"
 
           echo
-          echo "Slim runtime requirements:"
+          echo "Slim deployment bundle:"
+          du -sh "$DEPLOY_DIR"
+
+          echo
+          echo "Runtime requirements:"
           cat "$DEPLOY_DIR/requirements.txt"
 
-          if [ ! -s "$DEPLOY_DIR/requirements.txt" ]; then
-              echo "ERROR: Runtime requirements were not generated."
-              exit 1
-          fi
-
-          echo "deploy_dir=$DEPLOY_DIR" \
-            >> "$GITHUB_OUTPUT"
-
       - name: Smoke test slim API bundle
-        shell: bash
         run: |
           set -euo pipefail
 
-          DEPLOY_DIR="${{ steps.bundle.outputs.deploy_dir }}"
-          TEST_VENV="$RUNNER_TEMP/gridpulse-api-smoke"
+          SMOKE_VENV="$RUNNER_TEMP/gridpulse-api-smoke"
 
-          python -m venv "$TEST_VENV"
+          rm -rf "$SMOKE_VENV"
 
-          "$TEST_VENV/bin/python" \
+          python -m venv "$SMOKE_VENV"
+
+          "$SMOKE_VENV/bin/python" \
             -m pip install \
-            --quiet \
-            --upgrade pip
-
-          "$TEST_VENV/bin/python" \
-            -m pip install \
+            --disable-pip-version-check \
             --quiet \
             -r "$DEPLOY_DIR/requirements.txt"
 
-          cd "$DEPLOY_DIR"
-
-          VERCEL=1 \
-          GRIDPULSE_CORS_ORIGINS="https://gridpulse-intelligence.vercel.app" \
-          "$TEST_VENV/bin/python" - <<'PY'
+          PYTHONPATH="$DEPLOY_DIR/src" \
+          GRIDPULSE_RUNTIME_MODE=portfolio \
+          "$SMOKE_VENV/bin/python" - <<'PY'
           from fastapi.testclient import TestClient
 
-          from src.index import app
+          from index import app
+
 
           client = TestClient(app)
 
-          response = client.get(
+
+          routes = (
+              "/api/v1/platform/status",
               "/api/v1/platform/health",
-              headers={
-                  "Host": (
-                      "gridpulse-api-"
-                      "hruthikgavva-5884s-projects."
-                      "vercel.app"
-                  ),
-              },
+              "/api/v1/platform/freshness",
+              "/api/v1/platform/incidents",
+              "/api/v1/platform/lineage",
+              "/api/v1/platform/data-quality",
           )
 
-          print(
-              "Health:",
-              response.status_code,
-          )
 
-          if response.status_code != 200:
+          for route in routes:
+              response = client.get(route)
+
               print(
-                  response.text
+                  route,
+                  response.status_code,
               )
 
+              if response.status_code != 200:
+                  raise SystemExit(
+                      f"{route} failed: "
+                      f"{response.text}"
+                  )
+
+
+          status = client.get(
+              "/api/v1/platform/status"
+          ).json()
+
+
+          if status["grid_hourly_rows"] < 500:
               raise SystemExit(
-                  "Slim API health test failed."
+                  "Smoke test grid row count too low."
               )
 
-          body = response.json()
-
-          if body.get("status") != "healthy":
+          if status["balancing_authorities"] < 20:
               raise SystemExit(
-                  f"Unexpected health response: {body}"
+                  "Smoke test BA count too low."
               )
 
-          if body.get("runtime_mode") != "portfolio":
+          if status["ev_cities"] < 1:
               raise SystemExit(
-                  f"Unexpected runtime mode: {body}"
+                  "Smoke test EV mart is empty."
               )
 
+          if status["weather_forecasts"] < 12:
+              raise SystemExit(
+                  "Smoke test weather mart is too small."
+              )
+
+
+          health = client.get(
+              "/api/v1/platform/health"
+          ).json()
+
+
+          if health["status"] != "healthy":
+              raise SystemExit(
+                  "Portfolio health smoke test failed."
+              )
+
+
+          print()
           print(
-              "✓ Slim portfolio API passed smoke test"
+              "Slim FastAPI bundle smoke test: PASS"
           )
           PY
 
+      # ---------------------------------------------------------------
+      # VERCEL DEPLOYMENT
+      # ---------------------------------------------------------------
+
       - name: Deploy refreshed API to Vercel
-        id: deploy
-        shell: bash
         run: |
           set -euo pipefail
 
-          DEPLOY_DIR="${{ steps.bundle.outputs.deploy_dir }}"
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
 
-          DEPLOYMENT_URL="$(
-            npx --yes vercel@latest deploy \
-              "$DEPLOY_DIR" \
-              --prod \
-              --yes \
-              --token "$VERCEL_TOKEN"
-          )"
+          npx --yes \
+            vercel@latest \
+            deploy "$DEPLOY_DIR" \
+            --prod \
+            --yes \
+            --token "$VERCEL_TOKEN"
 
-          echo "Deployment: $DEPLOYMENT_URL"
-
-          echo "deployment_url=$DEPLOYMENT_URL" \
-            >> "$GITHUB_OUTPUT"
+      # ---------------------------------------------------------------
+      # PRODUCTION VERIFICATION
+      # ---------------------------------------------------------------
 
       - name: Verify production GridPulse API
-        shell: bash
         run: |
           set -euo pipefail
 
-          API_URL="https://gridpulse-api-hruthikgavva-5884s-projects.vercel.app"
+          verified=0
 
-          SUCCESS=0
+          for attempt in $(seq 1 30); do
+            echo
+            echo "Production verification ${attempt}/30..."
 
-          for ATTEMPT in 1 2 3 4 5 6 7 8 9 10
-          do
-              echo "Health check attempt $ATTEMPT"
+            if ! curl \
+              --fail \
+              --silent \
+              --show-error \
+              "$PUBLIC_API_URL/api/v1/platform/health" \
+              -o /tmp/gridpulse-health.json
+            then
+              sleep 10
+              continue
+            fi
 
-              HTTP_CODE="$(
-                curl \
-                  --silent \
-                  --show-error \
-                  --output /tmp/gridpulse-health.json \
-                  --write-out "%{http_code}" \
-                  "$API_URL/api/v1/platform/health" \
-                  || true
-              )"
+            if ! curl \
+              --fail \
+              --silent \
+              --show-error \
+              "$PUBLIC_API_URL/api/v1/platform/status" \
+              -o /tmp/gridpulse-status.json
+            then
+              sleep 10
+              continue
+            fi
 
-              if [ "$HTTP_CODE" = "200" ]; then
-                  SUCCESS=1
-                  break
-              fi
-
-              sleep 6
-          done
-
-          if [ "$SUCCESS" != "1" ]; then
-              echo "ERROR: Production API did not become healthy."
-              exit 1
-          fi
-
-          cat /tmp/gridpulse-health.json
-
-          python - <<'PY'
+            if uv run python - <<'PY'
           import json
           from pathlib import Path
 
-          payload = json.loads(
+
+          health = json.loads(
               Path(
                   "/tmp/gridpulse-health.json"
               ).read_text()
           )
 
-          assert payload["status"] == "healthy"
-          assert payload["runtime_mode"] == "portfolio"
+          status = json.loads(
+              Path(
+                  "/tmp/gridpulse-status.json"
+              ).read_text()
+          )
+
 
           print(
-              "✓ Production GridPulse API healthy"
+              "Runtime mode:",
+              health.get("runtime_mode"),
+          )
+
+          print(
+              "Health:",
+              health.get("status"),
+          )
+
+          print(
+              "Grid rows:",
+              status.get("grid_hourly_rows"),
+          )
+
+          print(
+              "Balancing authorities:",
+              status.get("balancing_authorities"),
+          )
+
+          print(
+              "EV cities:",
+              status.get("ev_cities"),
+          )
+
+          print(
+              "Weather forecasts:",
+              status.get("weather_forecasts"),
+          )
+
+
+          assert health.get("status") == "healthy"
+
+          assert (
+              health.get("runtime_mode")
+              == "portfolio"
+          )
+
+          assert (
+              status.get(
+                  "grid_hourly_rows",
+                  0,
+              )
+              >= 500
+          )
+
+          assert (
+              status.get(
+                  "balancing_authorities",
+                  0,
+              )
+              >= 20
+          )
+
+          assert (
+              status.get(
+                  "ev_cities",
+                  0,
+              )
+              >= 1
+          )
+
+          assert (
+              status.get(
+                  "weather_forecasts",
+                  0,
+              )
+              >= 12
           )
           PY
+            then
+              verified=1
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ "$verified" -ne 1 ]; then
+            echo
+            echo "Production API did not converge to the new deployment."
+            exit 1
+          fi
+
+          echo
+          echo "=========================================="
+          echo "GRIDPULSE PRODUCTION VERIFICATION: PASS"
+          echo "=========================================="
 
       - name: Refresh summary
         if: always()
         run: |
           {
-            echo "## GridPulse Public Refresh"
+            echo "## GridPulse Public Data Refresh"
             echo
-            echo "- Trigger: \`${{ github.event_name }}\`"
-            echo "- Commit: \`${{ github.sha }}\`"
-            echo "- Analytics snapshot rebuilt"
-            echo "- EIA / NWS / AFDC refresh attempted"
-            echo "- Slim Vercel API deployment performed only after validation"
+            echo "- Architecture: Public APIs → Kafka → Spark → Bronze → Silver → Gold → dbt → DuckDB → FastAPI"
+            echo "- Historical EIA: bounded replay window with replay=true"
+            echo "- Current EIA/NWS/AFDC: canonical Kafka events"
+            echo "- Public serving mode: read-only portfolio snapshot"
+            echo "- Production API: $PUBLIC_API_URL"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop Kafka
+        if: always()
+        run: |
+          docker compose \
+            -f infrastructure/docker/docker-compose.kafka.yml \
+            down -v \
+            --remove-orphans || true

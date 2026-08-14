@@ -111,9 +111,7 @@ def main() -> None:
     payload = {
         "captured_at": (datetime.now(UTC).isoformat()),
         "description": (
-            "Sanitized operational evidence "
-            "captured from the validated local "
-            "GridPulse engineering environment."
+            "Sanitized operational evidence captured from a validated GridPulse engineering run."
         ),
         "routes": routes,
     }
