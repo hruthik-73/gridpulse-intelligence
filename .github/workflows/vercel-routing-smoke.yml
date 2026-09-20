@@ -75,7 +75,7 @@ jobs:
             echo
             echo "Checking $route"
 
-            npx --yes vercel@59.23.2 curl               "$DEPLOYMENT_URL$route"               --token "$VERCEL_TOKEN"               --silent               --show-error               --fail-with-body
+            npx --yes vercel@59.23.2 --token "$VERCEL_TOKEN" curl "$DEPLOYMENT_URL$route" --silent --show-error --fail-with-body
 
             echo
           done
