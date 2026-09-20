@@ -38,7 +38,7 @@ jobs:
 
       SPARK_LOCAL_IP: 127.0.0.1
 
-      PUBLIC_API_URL: https://gridpulse-intelligence.vercel.app
+      PUBLIC_API_URL: https://gridpulse-api-hruthikgavva-5884s-projects.vercel.app
 
     steps:
       - name: Checkout repository
