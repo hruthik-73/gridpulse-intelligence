@@ -1,0 +1,81 @@
+name: Vercel Routing Smoke
+
+on:
+  push:
+    branches:
+      - fix/vercel-fastapi-routing-20260920
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Test Vercel routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Create slim routing bundle
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="$RUNNER_TEMP/gridpulse-vercel-routing"
+
+          mkdir -p "$DEPLOY_DIR/src"
+
+          cp -R             src/gridpulse_intelligence             "$DEPLOY_DIR/src/"
+
+          cp app.py "$DEPLOY_DIR/app.py"
+          cp vercel.json "$DEPLOY_DIR/vercel.json"
+
+          cat > "$DEPLOY_DIR/requirements.txt" <<'REQ'
+          duckdb>=1.5.5
+          fastapi[standard]>=0.141.1
+          httpx>=0.28.1
+          pydantic>=2.13.4
+          pydantic-settings>=2.15.0
+          tenacity>=9.1.4
+          structlog>=26.1.0
+          PyYAML>=6.0.3
+          confluent-kafka>=2.15.0
+          prometheus-client>=0.26.0
+          REQ
+
+          echo "DEPLOY_DIR=$DEPLOY_DIR" >> "$GITHUB_ENV"
+
+      - name: Deploy protected preview
+        run: |
+          set -euo pipefail
+
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+
+          npx --yes vercel@59.23.2 deploy "$DEPLOY_DIR"             --yes             --project "$VERCEL_PROJECT_ID"             --token "$VERCEL_TOKEN"             > /tmp/deployment-url.txt
+
+          DEPLOYMENT_URL="$(tail -n 1 /tmp/deployment-url.txt | tr -d '\r')"
+
+          echo "Preview deployment: $DEPLOYMENT_URL"
+          echo "DEPLOYMENT_URL=$DEPLOYMENT_URL" >> "$GITHUB_ENV"
+
+      - name: Verify preview routing
+        run: |
+          set -euo pipefail
+
+          for route in             "/"             "/api/v1/status"             "/api/v1/platform/health"
+          do
+            echo
+            echo "Checking $route"
+
+            npx --yes vercel@59.23.2 curl               "$DEPLOYMENT_URL$route"               --token "$VERCEL_TOKEN"               --silent               --show-error               --fail-with-body
+
+            echo
+          done
