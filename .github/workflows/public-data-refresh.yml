@@ -569,20 +569,19 @@ jobs:
           rm -rf "$DEPLOY_DIR"
 
           mkdir -p \
-            "$DEPLOY_DIR/src" \
-            "$DEPLOY_DIR/api"
+            "$DEPLOY_DIR/src"
 
           cp -R \
             src/gridpulse_intelligence \
             "$DEPLOY_DIR/src/"
 
+          # Deploy the exact same FastAPI entrypoint and Vercel config
+          # that are versioned in the repository. This prevents the
+          # smoke test and production deployment from testing different
+          # entrypoint files.
           cp \
-            src/index.py \
-            "$DEPLOY_DIR/src/index.py"
-
-          cp \
-            api/index.py \
-            "$DEPLOY_DIR/api/index.py"
+            app.py \
+            "$DEPLOY_DIR/app.py"
 
           cp \
             vercel.json \
@@ -647,13 +646,13 @@ jobs:
             -r "$DEPLOY_DIR/requirements.txt"
 
           VERCEL=1 \
-          PYTHONPATH="$DEPLOY_DIR/src" \
+          PYTHONPATH="$DEPLOY_DIR:$DEPLOY_DIR/src" \
           "$SMOKE_VENV/bin/python" - <<'PYTHON'
           import os
 
           from fastapi.testclient import TestClient
 
-          from index import app
+          from app import app
 
 
           def find_route(
@@ -735,6 +734,22 @@ jobs:
 
 
           client = TestClient(app)
+
+
+          root_response = client.get(
+              "/"
+          )
+
+          print(
+              "/",
+              root_response.status_code,
+          )
+
+          if root_response.status_code != 200:
+              raise SystemExit(
+                  "Vercel root smoke test failed: "
+                  f"{root_response.text}"
+              )
 
 
           status_route = find_route(
@@ -1004,6 +1019,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Root route: /"
           echo "Status route: $GRIDPULSE_STATUS_ROUTE"
           echo "Health route: $GRIDPULSE_HEALTH_ROUTE"
 
@@ -1012,6 +1028,16 @@ jobs:
           for attempt in $(seq 1 30); do
             echo
             echo "Production verification ${attempt}/30..."
+
+            ROOT_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/gridpulse-root.json \
+                --write-out "%{http_code}" \
+                "$PUBLIC_API_URL/" \
+                || true
+            )"
 
             STATUS_CODE="$(
               curl \
@@ -1033,11 +1059,13 @@ jobs:
                 || true
             )"
 
+            echo "Root HTTP: $ROOT_CODE"
             echo "Status HTTP: $STATUS_CODE"
             echo "Health HTTP: $HEALTH_CODE"
 
             if \
-              [ "$STATUS_CODE" = "200" ] \
+              [ "$ROOT_CODE" = "200" ] \
+              && [ "$STATUS_CODE" = "200" ] \
               && [ "$HEALTH_CODE" = "200" ]
             then
 
