@@ -581,7 +581,7 @@ jobs:
             "$DEPLOY_DIR/src/index.py"
 
           cp \
-            src/index.py \
+            api/index.py \
             "$DEPLOY_DIR/api/index.py"
 
           cp \
