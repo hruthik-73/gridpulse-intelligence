@@ -569,8 +569,7 @@ jobs:
           rm -rf "$DEPLOY_DIR"
 
           mkdir -p \
-            "$DEPLOY_DIR/src" \
-            "$DEPLOY_DIR/.vercel"
+            "$DEPLOY_DIR/src"
 
           cp -R \
             src/gridpulse_intelligence \
@@ -614,12 +613,6 @@ jobs:
               )
           PY
 
-          cat > "$DEPLOY_DIR/.vercel/project.json" <<JSON
-          {
-            "orgId": "${VERCEL_ORG_ID}",
-            "projectId": "${VERCEL_PROJECT_ID}"
-          }
-          JSON
 
           echo "DEPLOY_DIR=$DEPLOY_DIR" \
             >> "$GITHUB_ENV"
@@ -918,24 +911,89 @@ jobs:
           )
           PYTHON
 
-      - name: Deploy refreshed API to Vercel
+      - name: Verify Vercel project access
         run: |
-          set -euo pipefail
+          set -eo pipefail
 
           test -n "$VERCEL_TOKEN"
           test -n "$VERCEL_ORG_ID"
           test -n "$VERCEL_PROJECT_ID"
 
+          echo "Checking Vercel project access..."
+
+          HTTP_CODE="$(
+            curl \
+              --silent \
+              --show-error \
+              --output /tmp/vercel-project.json \
+              --write-out "%{http_code}" \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID"
+          )"
+
+          echo "Vercel project API: HTTP $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo
+            echo "Vercel project authorization failed."
+            echo
+            cat /tmp/vercel-project.json || true
+            exit 1
+          fi
+
+          uv run python - <<'PYTHON'
+          import json
+          from pathlib import Path
+
+
+          project = json.loads(
+              Path(
+                  "/tmp/vercel-project.json"
+              ).read_text()
+          )
+
+
+          print(
+              "Vercel project:",
+              project.get(
+                  "name",
+                  "<unknown>",
+              ),
+          )
+
+          print(
+              "Vercel project ID:",
+              project.get(
+                  "id",
+                  "<unknown>",
+              ),
+          )
+          PYTHON
+
+          echo
+          echo "Vercel authorization: PASS"
+
+      - name: Deploy refreshed API to Vercel
+        run: |
+          set -eo pipefail
+
+          test -n "$DEPLOY_DIR"
+          test -d "$DEPLOY_DIR"
+
+          # Never carry hand-written Vercel linking metadata
+          # into the disposable deployment bundle.
+          rm -rf "$DEPLOY_DIR/.vercel"
+
+          echo "Deploying refreshed GridPulse API..."
+          echo "Project ID: $VERCEL_PROJECT_ID"
+
           npx --yes \
-            vercel@latest \
+            vercel@59.23.2 \
             deploy "$DEPLOY_DIR" \
             --prod \
             --yes \
+            --project "$VERCEL_PROJECT_ID" \
             --token "$VERCEL_TOKEN"
-
-      # ---------------------------------------------------------------
-      # PRODUCTION VERIFICATION
-      # ---------------------------------------------------------------
 
       - name: Verify production GridPulse API
         run: |
