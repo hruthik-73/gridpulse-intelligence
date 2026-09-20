@@ -569,7 +569,8 @@ jobs:
           rm -rf "$DEPLOY_DIR"
 
           mkdir -p \
-            "$DEPLOY_DIR/src"
+            "$DEPLOY_DIR/src" \
+            "$DEPLOY_DIR/api"
 
           cp -R \
             src/gridpulse_intelligence \
@@ -578,6 +579,10 @@ jobs:
           cp \
             src/index.py \
             "$DEPLOY_DIR/src/index.py"
+
+          cp \
+            src/index.py \
+            "$DEPLOY_DIR/api/index.py"
 
           cp \
             vercel.json \
