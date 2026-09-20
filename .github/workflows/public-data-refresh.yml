@@ -569,24 +569,72 @@ jobs:
           rm -rf "$DEPLOY_DIR"
 
           mkdir -p \
-            "$DEPLOY_DIR/src" \
-            "$DEPLOY_DIR/api"
+            "$DEPLOY_DIR/src"
 
           cp -R \
             src/gridpulse_intelligence \
             "$DEPLOY_DIR/src/"
 
-          cp \
-            src/index.py \
-            "$DEPLOY_DIR/src/index.py"
+          # Vercel's current FastAPI runtime expects one unambiguous
+          # ASGI entrypoint.  Do not ship both src/index.py and
+          # api/index.py in the disposable bundle.
+          cat > "$DEPLOY_DIR/app.py" <<'PYTHON'
+          """Single Vercel FastAPI entrypoint for GridPulse."""
 
-          cp \
-            api/index.py \
-            "$DEPLOY_DIR/api/index.py"
+          from __future__ import annotations
 
-          cp \
-            vercel.json \
-            "$DEPLOY_DIR/vercel.json"
+          import sys
+          from pathlib import Path
+
+
+          SRC_DIRECTORY = (
+              Path(__file__).resolve().parent
+              / "src"
+          )
+
+          src_path = str(SRC_DIRECTORY)
+
+          if src_path not in sys.path:
+              sys.path.insert(
+                  0,
+                  src_path,
+              )
+
+
+          from gridpulse_intelligence.api import app  # noqa: E402
+
+
+          @app.get(
+              "/",
+              include_in_schema=False,
+          )
+          def vercel_root() -> dict[str, str]:
+              """Human-readable root for production checks."""
+
+              return {
+                  "service": "GridPulse Intelligence API",
+                  "status": "ok",
+                  "status_endpoint": "/api/v1/status",
+                  "health_endpoint": "/api/v1/platform/health",
+                  "docs": "/docs",
+              }
+
+
+          __all__ = [
+              "app",
+          ]
+          PYTHON
+
+          cat > "$DEPLOY_DIR/vercel.json" <<'JSON'
+          {
+            "$schema": "https://openapi.vercel.sh/vercel.json",
+            "functions": {
+              "app.py": {
+                "maxDuration": 60
+              }
+            }
+          }
+          JSON
 
           find "$DEPLOY_DIR" \
             -type d \
@@ -647,13 +695,13 @@ jobs:
             -r "$DEPLOY_DIR/requirements.txt"
 
           VERCEL=1 \
-          PYTHONPATH="$DEPLOY_DIR/src" \
+          PYTHONPATH="$DEPLOY_DIR:$DEPLOY_DIR/src" \
           "$SMOKE_VENV/bin/python" - <<'PYTHON'
           import os
 
           from fastapi.testclient import TestClient
 
-          from index import app
+          from app import app
 
 
           def find_route(
@@ -735,6 +783,22 @@ jobs:
 
 
           client = TestClient(app)
+
+
+          root_response = client.get(
+              "/"
+          )
+
+          print(
+              "/",
+              root_response.status_code,
+          )
+
+          if root_response.status_code != 200:
+              raise SystemExit(
+                  "Vercel root smoke test failed: "
+                  f"{root_response.text}"
+              )
 
 
           status_route = find_route(
@@ -1004,6 +1068,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Root route: /"
           echo "Status route: $GRIDPULSE_STATUS_ROUTE"
           echo "Health route: $GRIDPULSE_HEALTH_ROUTE"
 
@@ -1012,6 +1077,16 @@ jobs:
           for attempt in $(seq 1 30); do
             echo
             echo "Production verification ${attempt}/30..."
+
+            ROOT_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/gridpulse-root.json \
+                --write-out "%{http_code}" \
+                "$PUBLIC_API_URL/" \
+                || true
+            )"
 
             STATUS_CODE="$(
               curl \
@@ -1033,11 +1108,13 @@ jobs:
                 || true
             )"
 
+            echo "Root HTTP: $ROOT_CODE"
             echo "Status HTTP: $STATUS_CODE"
             echo "Health HTTP: $HEALTH_CODE"
 
             if \
-              [ "$STATUS_CODE" = "200" ] \
+              [ "$ROOT_CODE" = "200" ] \
+              && [ "$STATUS_CODE" = "200" ] \
               && [ "$HEALTH_CODE" = "200" ]
             then
 
