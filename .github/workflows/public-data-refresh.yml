@@ -575,66 +575,17 @@ jobs:
             src/gridpulse_intelligence \
             "$DEPLOY_DIR/src/"
 
-          # Vercel's current FastAPI runtime expects one unambiguous
-          # ASGI entrypoint.  Do not ship both src/index.py and
-          # api/index.py in the disposable bundle.
-          cat > "$DEPLOY_DIR/app.py" <<'PYTHON'
-          """Single Vercel FastAPI entrypoint for GridPulse."""
+          # Deploy the exact same FastAPI entrypoint and Vercel config
+          # that are versioned in the repository. This prevents the
+          # smoke test and production deployment from testing different
+          # entrypoint files.
+          cp \
+            app.py \
+            "$DEPLOY_DIR/app.py"
 
-          from __future__ import annotations
-
-          import sys
-          from pathlib import Path
-
-
-          SRC_DIRECTORY = (
-              Path(__file__).resolve().parent
-              / "src"
-          )
-
-          src_path = str(SRC_DIRECTORY)
-
-          if src_path not in sys.path:
-              sys.path.insert(
-                  0,
-                  src_path,
-              )
-
-
-          from gridpulse_intelligence.api import app  # noqa: E402
-
-
-          @app.get(
-              "/",
-              include_in_schema=False,
-          )
-          def vercel_root() -> dict[str, str]:
-              """Human-readable root for production checks."""
-
-              return {
-                  "service": "GridPulse Intelligence API",
-                  "status": "ok",
-                  "status_endpoint": "/api/v1/status",
-                  "health_endpoint": "/api/v1/platform/health",
-                  "docs": "/docs",
-              }
-
-
-          __all__ = [
-              "app",
-          ]
-          PYTHON
-
-          cat > "$DEPLOY_DIR/vercel.json" <<'JSON'
-          {
-            "$schema": "https://openapi.vercel.sh/vercel.json",
-            "functions": {
-              "app.py": {
-                "maxDuration": 60
-              }
-            }
-          }
-          JSON
+          cp \
+            vercel.json \
+            "$DEPLOY_DIR/vercel.json"
 
           find "$DEPLOY_DIR" \
             -type d \
