@@ -30,7 +30,7 @@
     "@types/react-dom": "^19",
     "@types/topojson-client": "^3.1.5",
     "@types/topojson-specification": "^1.0.5",
-    "eslint": "^9",
+    "eslint": "^10",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
